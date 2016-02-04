@@ -1,2 +1,2 @@
-from .bigquery_utility import BigqueryUtility
-from .gcs_utility import GcsUtility
+from .bigquery_utility import *
+from .gcs_utility import *
