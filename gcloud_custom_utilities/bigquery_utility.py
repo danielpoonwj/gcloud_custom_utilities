@@ -6,7 +6,14 @@ import time
 from oauth2client.client import GoogleCredentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error
+from googleapiclient.http import MediaInMemoryUpload
 pd.set_option('expand_frame_repr', False)
+
+
+def read_string_from_file(read_path):
+    with open(read_path, 'rb') as read_file:
+        read_string = read_file.read()
+    return read_string
 
 
 class BigqueryUtility:
@@ -380,7 +387,7 @@ class BigqueryUtility:
                 timeTaken
             )
 
-    def load_from_gcs(self, writeData, skipHeader=True, print_details=True):
+    def load_from_gcs(self, writeData, writeDisposition='WRITE_TRUNCATE', skipHeader=True, print_details=True):
         start_time = time.time()
         try:
             write_project_id = writeData['projectId']
@@ -405,7 +412,7 @@ class BigqueryUtility:
                         'datasetId': write_dataset_id,
                         'tableId': write_table_id
                     },
-                    'writeDisposition': 'WRITE_TRUNCATE',
+                    'writeDisposition': writeDisposition,
                     'skipLeadingRows': 1 if skipHeader else 0,
                     'schema': {
                         'fields': schema_fields
@@ -471,3 +478,56 @@ class BigqueryUtility:
                 destinationUri,
                 timeTaken
             )
+
+    def load_from_json(self, writeData, json_string, writeDisposition='WRITE_TRUNCATE', print_details=True, wait_finish=True):
+        start_time = time.time()
+        try:
+            write_project_id = writeData['projectId']
+            write_dataset_id = writeData['datasetId']
+            write_table_id = writeData['tableId']
+            schema_fields = writeData['schemaFields']
+        except (TypeError, KeyError):
+            print 'projectId, datasetId, tableId, schemaFields must be filled for load jobs'
+            raise
+
+        request_body = {
+            'jobReference': {
+                'projectId': write_project_id,
+                'job_id': str(uuid.uuid4())
+            },
+
+            'configuration': {
+                'load': {
+                    'destinationTable': {
+                        'projectId': write_project_id,
+                        'datasetId': write_dataset_id,
+                        'tableId': write_table_id
+                    },
+                    'writeDisposition': writeDisposition,
+                    'schema': {
+                        'fields': schema_fields
+                    },
+                    'sourceFormat': 'NEWLINE_DELIMITED_JSON'
+                }
+            }
+        }
+
+        media_body = MediaInMemoryUpload(json_string, mimetype='application/octet-stream')
+
+        response = self.__jobs.insert(
+                body=request_body,
+                projectId=write_project_id,
+                media_body=media_body
+        ).execute()
+
+        if wait_finish:
+            self.__poll_job_status(response)
+
+            m, s = divmod((time.time() - start_time), 60)
+            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
+
+            if print_details:
+                print '\tUploaded to %s (%s)' % (
+                    '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
+                    timeTaken
+                )
