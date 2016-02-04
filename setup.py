@@ -7,7 +7,7 @@ setup(name='gcloud_custom_utilities',
       author_email='daniel.poon.wenjie@gmail.com',
       packages=['gcloud_custom_utilities'],
       install_requires=[
-      	'humanize',
-      	'pandas',
-      	'google-api-python-client'
+        'humanize',
+        'pandas',
+        'google-api-python-client'
       ])
