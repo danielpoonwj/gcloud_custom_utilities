@@ -15,17 +15,17 @@ class BigqueryUtility:
         credentials = GoogleCredentials.get_application_default()
         service = build('bigquery', 'v2', credentials=credentials)
 
-        self.service = service
-        self.datasets = self.service.datasets()
-        self.jobs = self.service.jobs()
-        self.projects = self.service.projects()
-        self.tabledata = self.service.tabledata()
-        self.tables = self.service.tables()
+        self.__service = service
+        self.__datasets = self.__service.datasets()
+        self.__jobs = self.__service.jobs()
+        self.__projects = self.__service.projects()
+        self.__tabledata = self.__service.tabledata()
+        self.__tables = self.__service.tables()
 
     def list_projects(self, max_results=None):
         project_list = []
 
-        response = self.projects.list(
+        response = self.__projects.list(
             maxResults=max_results
         ).execute()
 
@@ -36,7 +36,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.projects.list(
+            response = self.__projects.list(
                 pageToken=page_token
             ).execute()
 
@@ -48,7 +48,7 @@ class BigqueryUtility:
     def list_datasets(self, project_id, show_all=False, max_results=None):
         dataset_list = []
 
-        response = self.datasets.list(
+        response = self.__datasets.list(
             projectId=project_id,
             all=show_all,
             maxResults=max_results
@@ -61,7 +61,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.datasets.list(
+            response = self.__datasets.list(
                 projectId=project_id,
                 all=show_all,
                 pageToken=page_token
@@ -75,7 +75,7 @@ class BigqueryUtility:
     def list_tables(self, project_id, dataset_id, max_results=None):
         table_list = []
 
-        response = self.tables.list(
+        response = self.__tables.list(
             projectId=project_id,
             datasetId=dataset_id,
             maxResults=max_results
@@ -88,7 +88,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.tables.list(
+            response = self.__tables.list(
                 projectId=project_id,
                 datasetId=dataset_id,
                 pageToken=page_token
@@ -100,7 +100,7 @@ class BigqueryUtility:
         return table_list
 
     def get_table_info(self, project_id, dataset_id, table_id):
-        return self.tables.get(
+        return self.__tables.get(
             projectId=project_id,
             datasetId=dataset_id,
             tableId=table_id
@@ -155,7 +155,7 @@ class BigqueryUtility:
 
     def __get_query_schema(self, response):
 
-        response = self.jobs.getQueryResults(
+        response = self.__jobs.getQueryResults(
                 projectId=response['jobReference']['projectId'],
                 jobId=response['jobReference']['jobId'],
                 maxResults=0
@@ -164,7 +164,7 @@ class BigqueryUtility:
         return response['schema']['fields']
 
     def delete_table(self, project_id, dataset_id, table_id):
-        self.tables.delete(
+        self.__tables.delete(
             projectId=project_id,
             datasetId=dataset_id,
             tableId=table_id
@@ -195,7 +195,7 @@ class BigqueryUtility:
             'timeoutMs': 0
         }
 
-        response = self.jobs.query(
+        response = self.__jobs.query(
             projectId=project_id,
             body=request_body
         ).execute()
@@ -228,7 +228,7 @@ class BigqueryUtility:
             }
         }
 
-        response = self.jobs.insert(
+        response = self.__jobs.insert(
             projectId=project_id,
             body=request_body
         ).execute()
@@ -250,7 +250,7 @@ class BigqueryUtility:
             if 'pageToken' in response:
                 page_token = response['pageToken']
 
-            response = self.jobs.getQueryResults(
+            response = self.__jobs.getQueryResults(
                 projectId=job_reference['projectId'],
                 jobId=job_reference['jobId'],
                 timeoutMs=0,
@@ -310,7 +310,7 @@ class BigqueryUtility:
     def __poll_job_status(self, response):
         status_state = None
         while not status_state == 'DONE':
-            response = self.jobs.get(
+            response = self.__jobs.get(
                 jobId=response['jobReference']['jobId'],
                 projectId=response['jobReference']['projectId']
             ).execute()
@@ -356,14 +356,14 @@ class BigqueryUtility:
             }
         }
 
-        response = self.jobs.insert(
+        response = self.__jobs.insert(
             projectId=project_id,
             body=request_body
         ).execute()
 
         self.__poll_job_status(response)
 
-        response = self.jobs.getQueryResults(
+        response = self.__jobs.getQueryResults(
             projectId=project_id,
             jobId=response['jobReference']['jobId']
         ).execute()
@@ -415,7 +415,7 @@ class BigqueryUtility:
             }
         }
 
-        response = self.jobs.insert(
+        response = self.__jobs.insert(
             projectId=write_project_id,
             body=request_body
         ).execute()
@@ -455,7 +455,7 @@ class BigqueryUtility:
             }
         }
 
-        response = self.jobs.insert(
+        response = self.__jobs.insert(
             projectId=read_project_id,
             body=request_body
         ).execute()
