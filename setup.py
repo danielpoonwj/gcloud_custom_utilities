@@ -9,5 +9,6 @@ setup(name='gcloud_custom_utilities',
       install_requires=[
         'humanize',
         'pandas',
-        'google-api-python-client'
+        'google-api-python-client',
+        'gitpython'
       ])
