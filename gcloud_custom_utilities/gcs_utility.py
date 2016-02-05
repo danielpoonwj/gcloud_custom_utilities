@@ -33,11 +33,11 @@ class GcsUtility:
         # Mimetype to use if one can't be guessed from the file extension.
         self.__DEFAULT_MIMETYPE = 'application/octet-stream'
 
-    def list_buckets(self, project, max_results=None):
+    def list_buckets(self, project_name, max_results=None):
         buckets_list = []
 
         response = self.__buckets.list(
-            project=project,
+            project=project_name,
             maxResults=max_results
         ).execute()
 
@@ -49,7 +49,7 @@ class GcsUtility:
                 page_token = response['nextPageToken']
 
             response = self.__buckets.list(
-                project=project,
+                project=project_name,
                 pageToken=page_token
             ).execute()
 
@@ -113,7 +113,7 @@ class GcsUtility:
                 % (str(error), sleeptime, progressless_iters))
         time.sleep(sleeptime)
 
-    def download_object(self, bucket_name, object_name, write_path, subfolders=None):
+    def download_object(self, bucket_name, object_name, write_path, subfolders=None, print_results=True):
         write_file = file(write_path, 'wb')
 
         request = self.__objects.get_media(
@@ -143,11 +143,12 @@ class GcsUtility:
             else:
                 progressless_iters = 0
 
-        file_size = humanize.naturalsize(int(self.get_object_metadata(bucket_name, object, subfolders)['size']))
+        file_size = humanize.naturalsize(int(self.get_object_metadata(bucket_name, object_name, subfolders)['size']))
 
-        print 'Downloaded %s:%s (%s)' % (bucket_name, object_name, file_size)
+        if print_results:
+            print 'Downloaded %s:%s (%s)' % (bucket_name, object_name, file_size)
 
-    def upload_object(self, bucket_name, object_name, read_path, subfolders=None):
+    def upload_object(self, bucket_name, object_name, read_path, subfolders=None, print_results=True):
         media = MediaFileUpload(read_path, chunksize=self.__CHUNKSIZE, resumable=True)
 
         if not media.mimetype():
@@ -180,4 +181,5 @@ class GcsUtility:
 
         file_size = humanize.naturalsize(int(response['size']))
 
-        print 'Uploaded to %s:%s (%s)' % (bucket_name, object_name, file_size)
+        if print_results:
+            print 'Uploaded to %s:%s (%s)' % (bucket_name, object_name, file_size)
