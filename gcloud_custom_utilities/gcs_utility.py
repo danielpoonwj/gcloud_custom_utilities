@@ -17,26 +17,26 @@ class GcsUtility:
         credentials = GoogleCredentials.get_application_default()
         service = build('storage', 'v1', credentials=credentials)
 
-        self.service = service
-        self.buckets = self.service.buckets()
-        self.objects = self.service.objects()
+        self.__service = service
+        self.__buckets = self.__service.buckets()
+        self.__objects = self.__service.objects()
 
         # Retry transport and file IO errors.
-        self.RETRYABLE_ERRORS = (HttpLib2Error, IOError)
+        self.__RETRYABLE_ERRORS = (HttpLib2Error, IOError)
 
         # Number of times to retry failed downloads.
-        self.NUM_RETRIES = 5
+        self.__NUM_RETRIES = 5
 
         # Number of bytes to send/receive in each request.
-        self.CHUNKSIZE = 2 * 1024 * 1024
+        self.__CHUNKSIZE = 2 * 1024 * 1024
 
         # Mimetype to use if one can't be guessed from the file extension.
-        self.DEFAULT_MIMETYPE = 'application/octet-stream'
+        self.__DEFAULT_MIMETYPE = 'application/octet-stream'
 
     def list_buckets(self, project, max_results=None):
         buckets_list = []
 
-        response = self.buckets.list(
+        response = self.__buckets.list(
             project=project,
             maxResults=max_results
         ).execute()
@@ -48,7 +48,7 @@ class GcsUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.buckets.list(
+            response = self.__buckets.list(
                 project=project,
                 pageToken=page_token
             ).execute()
@@ -58,12 +58,12 @@ class GcsUtility:
 
         return buckets_list
 
-    def list_objects(self, bucket, prefix=None, max_results=None):
+    def list_objects(self, bucket_name, search_prefix=None, max_results=None):
         objects_list = []
 
-        response = self.objects.list(
-            bucket=bucket,
-            prefix=prefix,
+        response = self.__objects.list(
+            bucket=bucket_name,
+            prefix=search_prefix,
             maxResults=max_results
         ).execute()
 
@@ -75,9 +75,9 @@ class GcsUtility:
                 if 'nextPageToken' in response:
                     page_token = response['nextPageToken']
 
-                response = self.objects.list(
-                    bucket=bucket,
-                    prefix=prefix,
+                response = self.__objects.list(
+                    bucket=bucket_name,
+                    prefix=search_prefix,
                     pageToken=page_token
                 ).execute()
 
@@ -86,29 +86,25 @@ class GcsUtility:
         
         return objects_list
 
-    def __parse_object_name(self, object, subfolders=None):
+    def __parse_object_name(self, object_name, subfolders=None):
+        object_updated = object_name
 
         if subfolders:
-            if isinstance(subfolders, list):
-                object_updated = quote('%s/%s' % ('/'.join(subfolders), object))
-            else:
-                raise TypeError('subfolders should be a list of folder directories')
-        else:
-            object_updated = object
+            assert isinstance(subfolders, list), 'subfolders should be a list of folder directories'
+            object_updated = quote('%s/%s' % ('/'.join(subfolders), object_name))
 
         return object_updated
 
-    def get_object_metadata(self, bucket, object, subfolders=None):
-
-        response = self.objects.get(
-            bucket=bucket,
-            object=self.__parse_object_name(object, subfolders)
+    def get_object_metadata(self, bucket_name, object_name, subfolders=None):
+        response = self.__objects.get(
+            bucket=bucket_name,
+            object=self.__parse_object_name(object_name, subfolders)
         ).execute()
 
         return response
 
     def __handle_progressless_iter(self, error, progressless_iters):
-        if progressless_iters > self.NUM_RETRIES:
+        if progressless_iters > self.__NUM_RETRIES:
             print 'Failed to make progress for too many consecutive iterations.'
             raise error
 
@@ -117,15 +113,15 @@ class GcsUtility:
                 % (str(error), sleeptime, progressless_iters))
         time.sleep(sleeptime)
 
-    def download_object(self, bucket, object, write_path, subfolders=None):
+    def download_object(self, bucket_name, object_name, write_path, subfolders=None):
         write_file = file(write_path, 'wb')
 
-        request = self.objects.get_media(
-            bucket=bucket,
-            object=self.__parse_object_name(object, subfolders)
+        request = self.__objects.get_media(
+            bucket=bucket_name,
+            object=self.__parse_object_name(object_name, subfolders)
         )
 
-        media = MediaIoBaseDownload(write_file, request, chunksize=self.CHUNKSIZE)
+        media = MediaIoBaseDownload(write_file, request, chunksize=self.__CHUNKSIZE)
 
         progressless_iters = 0
         done = False
@@ -138,7 +134,7 @@ class GcsUtility:
                 error = err
                 if err.resp.status < 500:
                     raise
-            except self.RETRYABLE_ERRORS, err:
+            except self.__RETRYABLE_ERRORS, err:
                 error = err
 
             if error:
@@ -147,19 +143,19 @@ class GcsUtility:
             else:
                 progressless_iters = 0
 
-        file_size = humanize.naturalsize(int(self.get_object_metadata(bucket, object, subfolders)['size']))
+        file_size = humanize.naturalsize(int(self.get_object_metadata(bucket_name, object, subfolders)['size']))
 
-        print 'Downloaded %s:%s (%s)' % (bucket, object, file_size)
+        print 'Downloaded %s:%s (%s)' % (bucket_name, object_name, file_size)
 
-    def upload_object(self, bucket, object, read_path, subfolders=None):
-        media = MediaFileUpload(read_path, chunksize=self.CHUNKSIZE, resumable=True)
+    def upload_object(self, bucket_name, object_name, read_path, subfolders=None):
+        media = MediaFileUpload(read_path, chunksize=self.__CHUNKSIZE, resumable=True)
 
         if not media.mimetype():
-            media = MediaFileUpload(read_path, self.DEFAULT_MIMETYPE, resumable=True)
+            media = MediaFileUpload(read_path, self.__DEFAULT_MIMETYPE, resumable=True)
         
-        request = self.objects.insert(
-            bucket=bucket, 
-            name=self.__parse_object_name(object, subfolders),
+        request = self.__objects.insert(
+            bucket=bucket_name,
+            name=self.__parse_object_name(object_name, subfolders),
             media_body=media
         )
 
@@ -173,7 +169,7 @@ class GcsUtility:
                 error = err
                 if err.resp.status < 500:
                     raise
-            except self.RETRYABLE_ERRORS, err:
+            except self.__RETRYABLE_ERRORS, err:
                 error = err
 
             if error:
@@ -184,4 +180,4 @@ class GcsUtility:
 
         file_size = humanize.naturalsize(int(response['size']))
 
-        print 'Uploaded to %s:%s (%s)' % (bucket, object, file_size)
+        print 'Uploaded to %s:%s (%s)' % (bucket_name, object_name, file_size)
