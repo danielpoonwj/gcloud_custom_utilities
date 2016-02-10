@@ -30,7 +30,7 @@ def git_clone(git_url, write_dir, overwrite_warning=True):
     git.Repo.clone_from(git_url, write_dir, progress=Progress())
 
 
-def git_pull(repo_dir):
+def git_fetch(repo_dir):
     repo = git.Repo(repo_dir)
     origin = repo.remote(name='origin')
 
