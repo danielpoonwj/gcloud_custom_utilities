@@ -31,14 +31,18 @@ class BigqueryUtility:
 
     def list_projects(self, max_results=None):
         project_list = []
+        project_count = 0
 
-        response = self.__projects.list(
-            maxResults=max_results
-        ).execute()
+        response = self.__projects.list().execute()
 
         project_list += response['projects']
+        project_count += len(response['projects'])
 
-        while 'nextPageToken' in response and max_results is None:
+        if project_count > max_results:
+            project_list = project_list[:max_results]
+            return project_list
+
+        while 'nextPageToken' in response:
             page_token = None
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
@@ -49,21 +53,70 @@ class BigqueryUtility:
 
             if 'projects' in response:
                 project_list += response['projects']
+                project_count += len(response['projects'])
+
+            if project_count > max_results:
+                project_list = project_list[:max_results]
+                break
 
         return project_list
 
+    def list_jobs(self, project_id, state_filter=None, show_all_users=False, max_results=None):
+        job_list = []
+        job_count = 0
+
+        response = self.__jobs.list(
+            projectId=project_id,
+            allUsers=show_all_users,
+            stateFilter=state_filter
+        ).execute()
+
+        job_list += response['jobs']
+        job_count += len(response['jobs'])
+
+        if job_count > max_results:
+            job_list = job_list[:max_results]
+            return job_list
+
+        while 'nextPageToken' in response:
+            page_token = None
+            if 'nextPageToken' in response:
+                page_token = response['nextPageToken']
+
+            response = self.__jobs.list(
+                projectId=project_id,
+                allUsers=show_all_users,
+                stateFilter=state_filter,
+                pageToken=page_token
+            ).execute()
+
+            if 'jobs' in response:
+                job_list += response['jobs']
+                job_count += len(response['jobs'])
+
+            if job_count > max_results:
+                job_list = job_list[:max_results]
+                break
+
+        return job_list
+
     def list_datasets(self, project_id, show_all=False, max_results=None):
         dataset_list = []
+        dataset_count = 0
 
         response = self.__datasets.list(
             projectId=project_id,
-            all=show_all,
-            maxResults=max_results
+            all=show_all
         ).execute()
 
         dataset_list += response['datasets']
+        dataset_count += len(response['datasets'])
 
-        while 'nextPageToken' in response and max_results is None:
+        if dataset_count > max_results:
+            dataset_list = dataset_list[:max_results]
+            return dataset_list
+
+        while 'nextPageToken' in response:
             page_token = None
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
@@ -76,21 +129,31 @@ class BigqueryUtility:
 
             if 'datasets' in response:
                 dataset_list += response['datasets']
+                dataset_count += len(response['datasets'])
+
+            if dataset_count > max_results:
+                dataset_list = dataset_list[:max_results]
+                break
 
         return dataset_list
 
     def list_tables(self, project_id, dataset_id, max_results=None):
         table_list = []
+        table_count = 0
 
         response = self.__tables.list(
             projectId=project_id,
-            datasetId=dataset_id,
-            maxResults=max_results
+            datasetId=dataset_id
         ).execute()
 
         table_list += response['tables']
+        table_count += len(response['tables'])
 
-        while 'nextPageToken' in response and max_results is None:
+        if table_count > max_results:
+            table_list = table_list[:max_results]
+            return table_list
+
+        while 'nextPageToken' in response:
             page_token = None
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
@@ -103,8 +166,19 @@ class BigqueryUtility:
 
             if 'tables' in response:
                 table_list += response['tables']
+                table_count += len(response['tables'])
+
+            if table_count > max_results:
+                table_list = table_list[:max_results]
+                break
 
         return table_list
+
+    def get_job(self, project_id, job_id):
+        return self.__jobs.get(
+            projectId=project_id,
+            jobId=job_id
+        ).execute()
 
     def get_table_info(self, project_id, dataset_id, table_id):
         return self.__tables.get(
