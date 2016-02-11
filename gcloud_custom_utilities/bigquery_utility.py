@@ -347,6 +347,8 @@ class BigqueryUtility:
                 for row in response['rows']:
                     returnList.append([item['v'] for item in row['f']])
 
+            time.sleep(1)
+
         m, s = divmod((time.time() - start_time), 60)
         timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 

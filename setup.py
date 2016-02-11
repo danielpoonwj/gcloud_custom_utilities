@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='gcloud_custom_utilities',
-      version='1.0',
+      version='1.1',
       description='Wrapper around Google Cloud Apis',
       author='Daniel Poon',
       author_email='daniel.poon.wenjie@gmail.com',
