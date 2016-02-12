@@ -17,23 +17,24 @@ def read_string_from_file(read_path):
 
 
 class BigqueryUtility:
-
-    def __init__(self):
+    def __init__(self, logger=None):
         credentials = GoogleCredentials.get_application_default()
         service = build('bigquery', 'v2', credentials=credentials)
 
-        self.__service = service
-        self.__datasets = self.__service.datasets()
-        self.__jobs = self.__service.jobs()
-        self.__projects = self.__service.projects()
-        self.__tabledata = self.__service.tabledata()
-        self.__tables = self.__service.tables()
+        self._service = service
+        self._datasets = self._service.datasets()
+        self._jobs = self._service.jobs()
+        self._projects = self._service.projects()
+        self._tabledata = self._service.tabledata()
+        self._tables = self._service.tables()
+
+        self._logger = logger
 
     def list_projects(self, max_results=None):
         project_list = []
         project_count = 0
 
-        response = self.__projects.list().execute()
+        response = self._projects.list().execute()
 
         project_list += response['projects']
         project_count += len(response['projects'])
@@ -47,7 +48,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.__projects.list(
+            response = self._projects.list(
                 pageToken=page_token
             ).execute()
 
@@ -65,7 +66,7 @@ class BigqueryUtility:
         job_list = []
         job_count = 0
 
-        response = self.__jobs.list(
+        response = self._jobs.list(
             projectId=project_id,
             allUsers=show_all_users,
             stateFilter=state_filter
@@ -83,7 +84,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.__jobs.list(
+            response = self._jobs.list(
                 projectId=project_id,
                 allUsers=show_all_users,
                 stateFilter=state_filter,
@@ -104,7 +105,7 @@ class BigqueryUtility:
         dataset_list = []
         dataset_count = 0
 
-        response = self.__datasets.list(
+        response = self._datasets.list(
             projectId=project_id,
             all=show_all
         ).execute()
@@ -121,7 +122,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.__datasets.list(
+            response = self._datasets.list(
                 projectId=project_id,
                 all=show_all,
                 pageToken=page_token
@@ -141,7 +142,7 @@ class BigqueryUtility:
         table_list = []
         table_count = 0
 
-        response = self.__tables.list(
+        response = self._tables.list(
             projectId=project_id,
             datasetId=dataset_id
         ).execute()
@@ -158,7 +159,7 @@ class BigqueryUtility:
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
 
-            response = self.__tables.list(
+            response = self._tables.list(
                 projectId=project_id,
                 datasetId=dataset_id,
                 pageToken=page_token
@@ -175,13 +176,13 @@ class BigqueryUtility:
         return table_list
 
     def get_job(self, project_id, job_id):
-        return self.__jobs.get(
+        return self._jobs.get(
             projectId=project_id,
             jobId=job_id
         ).execute()
 
     def get_table_info(self, project_id, dataset_id, table_id):
-        return self.__tables.get(
+        return self._tables.get(
             projectId=project_id,
             datasetId=dataset_id,
             tableId=table_id
@@ -234,9 +235,9 @@ class BigqueryUtility:
 
         return returnDict
 
-    def __get_query_schema(self, response):
+    def _get_query_schema(self, response):
 
-        response = self.__jobs.getQueryResults(
+        response = self._jobs.getQueryResults(
                 projectId=response['jobReference']['projectId'],
                 jobId=response['jobReference']['jobId'],
                 maxResults=0
@@ -244,46 +245,54 @@ class BigqueryUtility:
 
         return response['schema']['fields']
 
-    def delete_table(self, project_id, dataset_id, table_id):
-        self.__tables.delete(
+    def delete_table(self, project_id, dataset_id, table_id, print_results=True):
+        self._tables.delete(
             projectId=project_id,
             datasetId=dataset_id,
             tableId=table_id
         ).execute()
-        print '\tDeleted %s:%s:%s' % (project_id, dataset_id, table_id)
+
+        logging_string = 'Deleted %s:%s:%s' % (project_id, dataset_id, table_id)
+
+        if print_results:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
 
     def query(self, project_id, query, async=False, async_data=None, udfInlineCode=None, return_type='list', print_details=True):
         """Submit a query to bigquery. Users can choose whether to submit an
         asynchronous or synchronous query (default)."""
         if async:
-            try:
-                write_project_id = async_data['projectId']
-                write_dataset_id = async_data['datasetId']
-                write_table_id = async_data['tableId']
-            except (TypeError, KeyError):
-                print 'projectId, datasetId and tableId must be filled for async queries'
-                raise
+            # projectId, datasetId and tableId must be filled for async queries
+            write_project_id = async_data['projectId']
+            write_dataset_id = async_data['datasetId']
+            write_table_id = async_data['tableId']
 
-            return self.__async_query(project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details)
+            return self._async_query(project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details)
         else:
             if udfInlineCode is not None:
                 print 'WARNING: UDF is not enabled for sync queries, please use async if UDF is required'
-            return self.__sync_query(project_id, query, return_type, print_details)
 
-    def __sync_query(self, project_id, query, return_type, print_details):
+                if self._logger is not None:
+                    self._logger.warn('UDF is not enabled for sync queries, please use async if UDF is required')
+
+            return self._sync_query(project_id, query, return_type, print_details)
+
+    def _sync_query(self, project_id, query, return_type, print_details):
         request_body = {
             'query': query,
             'timeoutMs': 0
         }
 
-        response = self.__jobs.query(
+        response = self._jobs.query(
             projectId=project_id,
             body=request_body
         ).execute()
 
-        return self.__iterate_job_results(response, return_type, print_details)
+        return self._iterate_job_results(response, return_type, print_details)
 
-    def __async_query(self, project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details):
+    def _async_query(self, project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details):
 
         request_body = {
             'jobReference': {
@@ -309,17 +318,17 @@ class BigqueryUtility:
             }
         }
 
-        response = self.__jobs.insert(
+        response = self._jobs.insert(
             projectId=project_id,
             body=request_body
         ).execute()
 
-        return self.__iterate_job_results(response, return_type, print_details)
+        return self._iterate_job_results(response, return_type, print_details)
 
-    def __iterate_job_results(self, response, returnType, print_details):
+    def _iterate_job_results(self, response, returnType, print_details):
         start_time = time.time()
 
-        self.__poll_job_status(response)
+        self._poll_job_status(response)
 
         returnList = []
 
@@ -331,7 +340,7 @@ class BigqueryUtility:
             if 'pageToken' in response:
                 page_token = response['pageToken']
 
-            response = self.__jobs.getQueryResults(
+            response = self._jobs.getQueryResults(
                 projectId=job_reference['projectId'],
                 jobId=job_reference['jobId'],
                 timeoutMs=0,
@@ -352,27 +361,31 @@ class BigqueryUtility:
         m, s = divmod((time.time() - start_time), 60)
         timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        if print_details:
-            print '\tData retrieved with %d rows and %s processed (%s)' % (
+        logging_string = 'Data retrieved with %d rows and %s processed (%s)' % (
                 int(response['totalRows']),
                 humanize.naturalsize(int(response['totalBytesProcessed'])),
                 timeTaken
             )
 
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
         if returnType == 'list':
             return returnList
-
         elif returnType == 'dataframe':
-            querySchema = self.__get_query_schema(response)
+            querySchema = self._get_query_schema(response)
 
-            def __convert_timestamp(input_value):
+            def _convert_timestamp(input_value):
                 try:
                     return pd.datetime.utcfromtimestamp(float(input_value))
                 except TypeError:
                     return pd.np.NaN
 
             dtypeConversion = {
-                'TIMESTAMP': lambda x: __convert_timestamp(x)
+                'TIMESTAMP': lambda x: _convert_timestamp(x)
             }
 
             if len(returnList) > 0:
@@ -390,10 +403,10 @@ class BigqueryUtility:
         else:
             raise TypeError('Data can only be exported as list or dataframe')
 
-    def __poll_job_status(self, response):
+    def _poll_job_status(self, response):
         status_state = None
         while not status_state == 'DONE':
-            response = self.__jobs.get(
+            response = self._jobs.get(
                 jobId=response['jobReference']['jobId'],
                 projectId=response['jobReference']['projectId']
             ).execute()
@@ -407,13 +420,10 @@ class BigqueryUtility:
     def write_table(self, project_id, query, writeData, writeDisposition='WRITE_TRUNCATE', udfInlineCode=None, print_details=True):
         start_time = time.time()
 
-        try:
-            write_project_id = writeData['projectId']
-            write_dataset_id = writeData['datasetId']
-            write_table_id = writeData['tableId']
-        except (TypeError, KeyError):
-            print 'projectId, datasetId and tableId must be filled when writing to table'
-            raise
+        # projectId, datasetId and tableId must be filled when writing to table
+        write_project_id = writeData['projectId']
+        write_dataset_id = writeData['datasetId']
+        write_table_id = writeData['tableId']
 
         request_body = {
             'jobReference': {
@@ -439,14 +449,14 @@ class BigqueryUtility:
             }
         }
 
-        response = self.__jobs.insert(
+        response = self._jobs.insert(
             projectId=project_id,
             body=request_body
         ).execute()
 
-        self.__poll_job_status(response)
+        self._poll_job_status(response)
 
-        response = self.__jobs.getQueryResults(
+        response = self._jobs.getQueryResults(
             projectId=project_id,
             jobId=response['jobReference']['jobId']
         ).execute()
@@ -454,26 +464,28 @@ class BigqueryUtility:
         m, s = divmod((time.time() - start_time), 60)
         timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        if print_details:
-            print '\tQuery %s to %s with %d rows and %s processed (%s)' % (
+        logging_string = '\tQuery %s to %s with %d rows and %s processed (%s)' % (
                 'appended' if writeDisposition == 'WRITE_APPEND' else 'written',
                 '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
                 int(response['totalRows']),
                 humanize.naturalsize(int(response['totalBytesProcessed'])),
                 timeTaken
             )
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
 
     def load_from_gcs(self, writeData, writeDisposition='WRITE_TRUNCATE', skipHeader=True, print_details=True):
         start_time = time.time()
-        try:
-            write_project_id = writeData['projectId']
-            write_dataset_id = writeData['datasetId']
-            write_table_id = writeData['tableId']
-            schema_fields = writeData['schemaFields']
-            source_uri = writeData['sourceUri']
-        except (TypeError, KeyError):
-            print 'projectId, datasetId, tableId, schemaFields, sourceUri must be filled for load jobs'
-            raise
+
+        # projectId, datasetId, tableId, schemaFields, sourceUri must be filled for load jobs
+        write_project_id = writeData['projectId']
+        write_dataset_id = writeData['datasetId']
+        write_table_id = writeData['tableId']
+        schema_fields = writeData['schemaFields']
+        source_uri = writeData['sourceUri']
 
         request_body = {
             'jobReference': {
@@ -498,22 +510,27 @@ class BigqueryUtility:
             }
         }
 
-        response = self.__jobs.insert(
+        response = self._jobs.insert(
             projectId=write_project_id,
             body=request_body
         ).execute()
 
-        self.__poll_job_status(response)
+        self._poll_job_status(response)
 
         m, s = divmod((time.time() - start_time), 60)
         timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        if print_details:
-            print '\t%s uploaded to %s (%s)' % (
+        logging_string = '%s uploaded to %s (%s)' % (
                 source_uri,
                 '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
                 timeTaken
             )
+
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
 
     def export_to_gcs(self, read_project_id, read_dataset_id, read_table_id, destinationUri, compression='NONE', destinationFormat='CSV', print_details=True):
         start_time = time.time()
@@ -538,33 +555,36 @@ class BigqueryUtility:
             }
         }
 
-        response = self.__jobs.insert(
+        response = self._jobs.insert(
             projectId=read_project_id,
             body=request_body
         ).execute()
 
-        self.__poll_job_status(response)
+        self._poll_job_status(response)
 
         m, s = divmod((time.time() - start_time), 60)
         timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        if print_details:
-            print '\t%s extracted to %s (%s)' % (
+        logging_string = '%s extracted to %s (%s)' % (
                 '%s:%s:%s' % (read_project_id, read_dataset_id, read_table_id),
                 destinationUri,
                 timeTaken
             )
 
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
     def load_from_json(self, writeData, json_string, writeDisposition='WRITE_TRUNCATE', print_details=True, wait_finish=True):
         start_time = time.time()
-        try:
-            write_project_id = writeData['projectId']
-            write_dataset_id = writeData['datasetId']
-            write_table_id = writeData['tableId']
-            schema_fields = writeData['schemaFields']
-        except (TypeError, KeyError):
-            print 'projectId, datasetId, tableId, schemaFields must be filled for load jobs'
-            raise
+
+        # projectId, datasetId, tableId, schemaFields must be filled for load jobs
+        write_project_id = writeData['projectId']
+        write_dataset_id = writeData['datasetId']
+        write_table_id = writeData['tableId']
+        schema_fields = writeData['schemaFields']
 
         request_body = {
             'jobReference': {
@@ -590,20 +610,25 @@ class BigqueryUtility:
 
         media_body = MediaInMemoryUpload(json_string, mimetype='application/octet-stream')
 
-        response = self.__jobs.insert(
+        response = self._jobs.insert(
                 body=request_body,
                 projectId=write_project_id,
                 media_body=media_body
         ).execute()
 
         if wait_finish:
-            self.__poll_job_status(response)
+            self._poll_job_status(response)
 
             m, s = divmod((time.time() - start_time), 60)
             timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-            if print_details:
-                print '\tUploaded to %s (%s)' % (
+            logging_string = 'Uploaded to %s (%s)' % (
                     '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
                     timeTaken
                 )
+
+            if print_details:
+                print '\t%s' % logging_string
+
+            if self._logger is not None:
+                self._logger.info(logging_string)
