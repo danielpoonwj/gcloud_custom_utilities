@@ -47,13 +47,13 @@ def git_fetch(repo_dir):
 
 
 class StringLogger:
-    def __init__(self, name=None, level=logging.DEBUG, formatter=None):
+    def __init__(self, name=None, level=logging.DEBUG, formatter=None, ignore_modules=None):
         self._logger = logging.getLogger(name)
         self._logger.setLevel(level)
 
         if formatter is None:
             self._formatter = logging.Formatter(
-                    fmt='%(asctime)s [%(levelname)s]: %(message)s',
+                    fmt='%(asctime)s [%(levelname)s] (%(name)s): %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S'
             )
         else:
@@ -66,6 +66,17 @@ class StringLogger:
         sh.setFormatter(self._formatter)
 
         self._logger.addHandler(sh)
+
+        # filters logging for modules in ignore_modules
+        if ignore_modules is not None and isinstance(ignore_modules, (list, tuple)):
+            class _LoggingFilter(logging.Filter):
+                def filter(self, record):
+                    # still lets WARNING, ERROR and CRITICAL through
+                    return record.name not in ignore_modules or \
+                           record.levelno in (logging.WARNING, logging.ERROR, logging.CRITICAL)
+
+            for handler in self._logger.handlers:
+                handler.addFilter(_LoggingFilter())
 
     def get_logger(self):
         return self._logger
