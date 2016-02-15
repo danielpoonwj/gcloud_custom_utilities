@@ -4,7 +4,7 @@ from urllib2 import quote
 from httplib2 import HttpLib2Error
 import random
 
-from oauth2client.client import GoogleCredentials
+from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -14,8 +14,55 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 class GcsUtility:
 
     def __init__(self, logger=None):
-        credentials = GoogleCredentials.get_application_default()
-        service = build('storage', 'v1', credentials=credentials)
+        try:
+            credentials = GoogleCredentials.get_application_default()
+            service = build('storage', 'v1', credentials=credentials)
+
+        except ApplicationDefaultCredentialsError:
+            import os
+            import sys
+            import httplib2
+            from oauth2client.file import Storage
+            from oauth2client.tools import run_flow, argparser
+
+            try:
+                import argparse
+                flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
+            except ImportError:
+                flags = None
+
+            OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
+
+            print 'Application Default Credentials unavailable, attempting to authenticate user.'
+            print 'Input client secret path. For more detailed instructions, press enter.'
+            CLIENT_SECRET = raw_input('Client Secret Path: ')
+
+            if CLIENT_SECRET is None or not os.path.exists(CLIENT_SECRET):
+                print 'Instructions for generating Client Secret file:'
+                print '1. Go to https://console.developers.google.com/'
+                print '2. Under the Projects dropdown menu, click create a project. This will be a project specific to your login account'
+                print '3. Once the new project is created, select that project, and navigate to API Manager'
+                print '4. Under the API Manager submenu, click on Credentials and click Create credentials. Select OAuth client ID, with the Application type as Other.'
+                print '5. After it has been successfully created, you will have the option of downloading it as json.'
+                sys.exit(0)
+
+            print 'Input credentials filepath. If file does not currently exist, one will be created for you.\n'
+            CREDS_FILE = raw_input('Credentials Path: ')
+
+            storage = Storage(CREDS_FILE)
+            credentials = storage.get()
+
+            FLOW = flow_from_clientsecrets(CLIENT_SECRET, scope=OAUTH_SCOPE)
+
+            if credentials is None or credentials.invalid:
+                # Run through the OAuth flow and retrieve credentials
+                credentials = run_flow(FLOW, storage, flags)
+
+            # Create an httplib2.Http object and authorize it with our credentials
+            http = httplib2.Http()
+            http = credentials.authorize(http)
+
+            service = build('storage', 'v1', http=http)
 
         self._service = service
         self._buckets = self._service.buckets()
