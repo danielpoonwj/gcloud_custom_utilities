@@ -376,7 +376,7 @@ class BigqueryUtility:
     def _iterate_job_results(self, response, returnType, print_details):
         start_time = time.time()
 
-        self._poll_job_status(response)
+        self.poll_job_status(response)
 
         returnList = []
 
@@ -451,7 +451,7 @@ class BigqueryUtility:
         else:
             raise TypeError('Data can only be exported as list or dataframe')
 
-    def _poll_job_status(self, response):
+    def poll_job_status(self, response):
         status_state = None
         while not status_state == 'DONE':
             response = self._jobs.get(
@@ -465,7 +465,14 @@ class BigqueryUtility:
             err_msg = '%s: %s' % (response['status']['errorResult']['reason'], response['status']['errorResult']['message'])
             raise Error(err_msg)
 
-    def write_table(self, project_id, query, writeData, writeDisposition='WRITE_TRUNCATE', udfInlineCode=None, print_details=True):
+    def write_table(self,
+                    project_id,
+                    query,
+                    writeData,
+                    writeDisposition='WRITE_TRUNCATE',
+                    udfInlineCode=None,
+                    print_details=True,
+                    wait_finish=True):
         start_time = time.time()
 
         # projectId, datasetId and tableId must be filled when writing to table
@@ -502,30 +509,39 @@ class BigqueryUtility:
             body=request_body
         ).execute()
 
-        self._poll_job_status(response)
+        if wait_finish:
+            self.poll_job_status(response)
 
-        response = self._jobs.getQueryResults(
-            projectId=project_id,
-            jobId=response['jobReference']['jobId']
-        ).execute()
+            response = self._jobs.getQueryResults(
+                projectId=project_id,
+                jobId=response['jobReference']['jobId']
+            ).execute()
 
-        m, s = divmod((time.time() - start_time), 60)
-        timeTaken = '%02d Minutes %02d Seconds' % (m, s)
+            m, s = divmod((time.time() - start_time), 60)
+            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        logging_string = '\tQuery %s to %s with %d rows and %s processed (%s)' % (
-                'appended' if writeDisposition == 'WRITE_APPEND' else 'written',
-                '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
-                int(response['totalRows']),
-                humanize.naturalsize(int(response['totalBytesProcessed'])),
-                timeTaken
-            )
-        if print_details:
-            print '\t%s' % logging_string
+            logging_string = '\tQuery %s to %s with %d rows and %s processed (%s)' % (
+                    'appended' if writeDisposition == 'WRITE_APPEND' else 'written',
+                    '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
+                    int(response['totalRows']),
+                    humanize.naturalsize(int(response['totalBytesProcessed'])),
+                    timeTaken
+                )
+            if print_details:
+                print '\t%s' % logging_string
 
-        if self._logger is not None:
-            self._logger.info(logging_string)
+            if self._logger is not None:
+                self._logger.info(logging_string)
+        else:
+            return response
 
-    def load_from_gcs(self, writeData, writeDisposition='WRITE_TRUNCATE', skipHeader=True, print_details=True):
+    def load_from_gcs(self,
+                      writeData,
+                      writeDisposition='WRITE_TRUNCATE',
+                      skipHeader=True,
+                      print_details=True,
+                      wait_finish=True):
+
         start_time = time.time()
 
         # projectId, datasetId, tableId, schemaFields, sourceUri must be filled for load jobs
@@ -563,24 +579,36 @@ class BigqueryUtility:
             body=request_body
         ).execute()
 
-        self._poll_job_status(response)
+        if wait_finish:
+            self.poll_job_status(response)
 
-        m, s = divmod((time.time() - start_time), 60)
-        timeTaken = '%02d Minutes %02d Seconds' % (m, s)
+            m, s = divmod((time.time() - start_time), 60)
+            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        logging_string = '%s uploaded to %s (%s)' % (
-                source_uri,
-                '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
-                timeTaken
-            )
+            logging_string = '%s uploaded to %s (%s)' % (
+                    source_uri,
+                    '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
+                    timeTaken
+                )
 
-        if print_details:
-            print '\t%s' % logging_string
+            if print_details:
+                print '\t%s' % logging_string
 
-        if self._logger is not None:
-            self._logger.info(logging_string)
+            if self._logger is not None:
+                self._logger.info(logging_string)
+        else:
+            return response
 
-    def export_to_gcs(self, read_project_id, read_dataset_id, read_table_id, destinationUri, compression='NONE', destinationFormat='CSV', print_details=True):
+    def export_to_gcs(self,
+                      read_project_id,
+                      read_dataset_id,
+                      read_table_id,
+                      destinationUri,
+                      compression='NONE',
+                      destinationFormat='CSV',
+                      print_details=True,
+                      wait_finish=True):
+
         start_time = time.time()
 
         request_body = {
@@ -608,24 +636,33 @@ class BigqueryUtility:
             body=request_body
         ).execute()
 
-        self._poll_job_status(response)
+        if wait_finish:
+            self.poll_job_status(response)
 
-        m, s = divmod((time.time() - start_time), 60)
-        timeTaken = '%02d Minutes %02d Seconds' % (m, s)
+            m, s = divmod((time.time() - start_time), 60)
+            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
 
-        logging_string = '%s extracted to %s (%s)' % (
-                '%s:%s:%s' % (read_project_id, read_dataset_id, read_table_id),
-                destinationUri,
-                timeTaken
-            )
+            logging_string = '%s extracted to %s (%s)' % (
+                    '%s:%s:%s' % (read_project_id, read_dataset_id, read_table_id),
+                    destinationUri,
+                    timeTaken
+                )
 
-        if print_details:
-            print '\t%s' % logging_string
+            if print_details:
+                print '\t%s' % logging_string
 
-        if self._logger is not None:
-            self._logger.info(logging_string)
+            if self._logger is not None:
+                self._logger.info(logging_string)
+        else:
+            return response
 
-    def load_from_json(self, writeData, json_string, writeDisposition='WRITE_TRUNCATE', print_details=True, wait_finish=True):
+    def load_from_json(self,
+                       writeData,
+                       json_string,
+                       writeDisposition='WRITE_TRUNCATE',
+                       print_details=True,
+                       wait_finish=True):
+
         start_time = time.time()
 
         # projectId, datasetId, tableId, schemaFields must be filled for load jobs
@@ -665,7 +702,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self._poll_job_status(response)
+            self.poll_job_status(response)
 
             m, s = divmod((time.time() - start_time), 60)
             timeTaken = '%02d Minutes %02d Seconds' % (m, s)
@@ -680,3 +717,5 @@ class BigqueryUtility:
 
             if self._logger is not None:
                 self._logger.info(logging_string)
+        else:
+            return response
