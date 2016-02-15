@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='gcloud_custom_utilities',
-      version='1.1',
+      version='1.2',
       description='Wrapper around Google Cloud Apis',
       author='Daniel Poon',
       author_email='daniel.poon.wenjie@gmail.com',
@@ -10,5 +10,6 @@ setup(name='gcloud_custom_utilities',
         'humanize',
         'pandas',
         'google-api-python-client',
-        'gitpython'
+        'gitpython',
+        'googleads'
       ])
