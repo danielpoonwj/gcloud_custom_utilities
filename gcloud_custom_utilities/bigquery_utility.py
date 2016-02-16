@@ -672,12 +672,16 @@ class BigqueryUtility:
         else:
             return response
 
-    def load_from_json(self,
-                       writeData,
-                       json_string,
-                       writeDisposition='WRITE_TRUNCATE',
-                       print_details=True,
-                       wait_finish=True):
+    def load_from_string(self,
+                        writeData,
+                        load_string,
+                        source_format='CSV',
+                        skipHeader=True,
+                        writeDisposition='WRITE_TRUNCATE',
+                        print_details=True,
+                        wait_finish=True):
+
+        assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
 
         start_time = time.time()
 
@@ -704,12 +708,13 @@ class BigqueryUtility:
                     'schema': {
                         'fields': schema_fields
                     },
-                    'sourceFormat': 'NEWLINE_DELIMITED_JSON'
+                    'sourceFormat': source_format,
+                    'skipLeadingRows': 1 if skipHeader else 0
                 }
             }
         }
 
-        media_body = MediaInMemoryUpload(json_string, mimetype='application/octet-stream')
+        media_body = MediaInMemoryUpload(load_string, mimetype='application/octet-stream')
 
         response = self._jobs.insert(
                 body=request_body,
