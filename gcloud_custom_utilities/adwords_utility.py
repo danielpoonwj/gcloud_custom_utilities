@@ -3,10 +3,15 @@ from datetime import datetime
 
 
 class AdwordsUtility:
-    def __init__(self, client_customer_id, service_version='v201601', creds_path=None):
+    def __init__(self, client_customer_id=None, service_version='v201601', credential_path=None):
         # Initialize client object.
-        self._client = adwords.AdWordsClient.LoadFromStorage(creds_path)
-        self.change_client_customer_id(client_customer_id)
+        self._client = adwords.AdWordsClient.LoadFromStorage(credential_path)
+
+        if self._client.client_customer_id is None:
+            if client_customer_id is not None:
+                self.change_client_customer_id(client_customer_id)
+            else:
+                raise KeyError('client_customer_id has to be filled in googleads.yaml or input as an argument')
 
         self._service_version = service_version
 
