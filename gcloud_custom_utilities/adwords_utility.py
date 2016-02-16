@@ -244,3 +244,111 @@ class AdwordsUtility:
         fields = report_definition_service.getReportFields(report_type)
 
         return fields
+
+
+class AdwordsReportCleaner:
+    def __init__(self, adwords_obj, report_type, report_fields, additional_cleaning_functions=None):
+
+        assert isinstance(adwords_obj, AdwordsUtility)
+        assert isinstance(report_fields, (list, tuple, set))
+
+        self._adwords_obj = adwords_obj
+        self._report_type = report_type
+        self._report_fields = report_fields
+
+        # input is in the form of a list of dicts
+        # [
+        #     {
+        #         'name': adwords field name
+        #         'type': final output type after function has run (can be different from original)
+        #         'function': lambda or named functions accepted, only one argument for value
+        #     }
+        # ]
+        self._additional_cleaning_functions = additional_cleaning_functions
+
+        self._field_references = self._adwords_obj.get_report_fields(report_type)
+
+        def get_field_types(report_fields, field_references):
+            field_types_dict = {}
+
+            for field_name in report_fields:
+                field_type = None
+
+                # default type can be overridden if resulting type is different after cleaning
+                if additional_cleaning_functions is not None and field_name in [x['name'] for x in additional_cleaning_functions]:
+                    for function_dict in additional_cleaning_functions:
+                        if function_dict['name'] == field_name:
+                            field_type = function_dict['type']
+                            break
+                else:
+                    for field_reference in field_references:
+                        if field_name == field_reference['fieldName']:
+                            field_type = field_reference['fieldType']
+                            break
+
+                assert field_type is not None
+                field_types_dict[field_name] = field_type
+
+            return field_types_dict
+
+        self._field_types = get_field_types(report_fields, self._field_references)
+
+        # default mapping, everything else will be taken as STRING
+        self._bq_map = {
+            'Money': 'FLOAT',
+            'Double': 'FLOAT',
+            'Long': 'INTEGER',
+            'Integer': 'INTEGER',
+            'Date': 'TIMESTAMP'
+        }
+
+    def get_bq_schema(self):
+        bq_schema = []
+
+        for field_name in self._report_fields:
+            try:
+                bq_type = self._bq_map[self._field_types[field_name]]
+            except KeyError:
+                bq_type = 'STRING'
+
+            bq_schema.append({
+                'name': field_name,
+                'type': bq_type
+            })
+
+        return bq_schema
+
+    def _cleaner(self, value, field_name, field_type):
+        # manually input cleaning functions take precedence
+        if self._additional_cleaning_functions is not None:
+            for function_dict in self._additional_cleaning_functions:
+                if field_name == function_dict['name']:
+                    return function_dict['function'](value)
+
+        if str(value).strip() == '--':
+            return None
+        elif field_type == 'Money':
+            # Money is returned as micro units
+            return float(value) / 1000000.0
+        elif field_type == 'Date':
+            return datetime.strptime(value, '%Y-%m-%d').strftime('%Y-%m-%d %H:%M:%S')
+        elif field_type in self._bq_map:
+            if self._bq_map[field_type] == 'FLOAT':
+                return float(value)
+            if self._bq_map[field_type] == 'INTEGER':
+                return int(value)
+        else:
+            return value
+
+    def clean_data(self, iterable):
+        result = []
+        for row in iterable:
+            cleaned_row = []
+            for index, value in enumerate(row):
+                field_name = self._report_fields[index]
+                field_type = self._field_types[field_name]
+                cleaned_row.append(self._cleaner(value, field_name, field_type))
+
+            result.append(cleaned_row)
+
+        return result
