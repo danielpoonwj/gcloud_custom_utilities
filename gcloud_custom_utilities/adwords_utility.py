@@ -159,6 +159,7 @@ class AdwordsUtility:
             start_date,
             end_date,
             write_file,
+            predicates=None,
             download_format='CSV',
             skip_report_header=True,
             skip_report_summary=True,
@@ -167,6 +168,7 @@ class AdwordsUtility:
 
         assert isinstance(start_date, datetime)
         assert isinstance(end_date, datetime)
+        assert isinstance(predicates, list) if predicates is not None else True
 
         report_downloader = self._client.GetReportDownloader(version='v201601')
 
@@ -180,7 +182,8 @@ class AdwordsUtility:
                 'dateRange': {
                     'min': start_date.strftime('%Y%m%d'),
                     'max': end_date.strftime('%Y%m%d')
-                }
+                },
+                'predicates': [] if predicates is None else predicates
             }
         }
 
@@ -198,6 +201,7 @@ class AdwordsUtility:
             fields,
             start_date,
             end_date,
+            predicates=None,
             download_format='CSV',
             skip_report_header=True,
             skip_report_summary=True,
@@ -206,6 +210,7 @@ class AdwordsUtility:
 
         assert isinstance(start_date, datetime)
         assert isinstance(end_date, datetime)
+        assert isinstance(predicates, list) if predicates is not None else True
 
         report_downloader = self._client.GetReportDownloader(version='v201601')
 
@@ -219,7 +224,8 @@ class AdwordsUtility:
                 'dateRange': {
                     'min': start_date.strftime('%Y%m%d'),
                     'max': end_date.strftime('%Y%m%d')
-                }
+                },
+                'predicates': [] if predicates is None else predicates
             }
         }
 
