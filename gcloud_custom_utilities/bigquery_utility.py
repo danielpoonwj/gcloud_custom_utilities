@@ -462,7 +462,11 @@ class BigqueryUtility:
             raise TypeError('Data can only be exported as list or dataframe')
 
     def poll_job_status(self, response):
-        status_state = None
+        try:
+            status_state = response['status']['state']
+        except KeyError:
+            status_state = None
+
         while not status_state == 'DONE':
             response = self._jobs.get(
                 jobId=response['jobReference']['jobId'],
@@ -474,6 +478,8 @@ class BigqueryUtility:
         if 'errorResult' in response['status']:
             err_msg = '%s: %s' % (response['status']['errorResult']['reason'], response['status']['errorResult']['message'])
             raise Error(err_msg)
+
+        return response
 
     def write_table(self,
                     project_id,
