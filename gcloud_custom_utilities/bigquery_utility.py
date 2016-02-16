@@ -38,9 +38,19 @@ class BigqueryUtility:
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/bigquery'
 
-            print 'Application Default Credentials unavailable, attempting to authenticate user.'
+            print 'Application Default Credentials unavailable.'
+            print 'To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
+
+            to_continue = None
+
+            while to_continue not in ('y', 'n'):
+                to_continue = raw_input('Alternatively, authenticate through Client Secret? [y/n]: ').lower()
+
+            if to_continue == 'n':
+                sys.exit(0)
+
             print 'Input client secret path. For more detailed instructions, press enter.'
-            CLIENT_SECRET = raw_input('Client Secret Path: ')
+            CLIENT_SECRET = raw_input('Client Secret Path: ').strip()
 
             if CLIENT_SECRET is None or not os.path.exists(CLIENT_SECRET):
                 print 'Instructions for generating Client Secret file:'
@@ -52,7 +62,7 @@ class BigqueryUtility:
                 sys.exit(0)
 
             print 'Input credentials filepath. If file does not currently exist, one will be created for you.\n'
-            CREDS_FILE = raw_input('Credentials Path: ')
+            CREDS_FILE = raw_input('Credentials Path: ').strip()
 
             storage = Storage(CREDS_FILE)
             credentials = storage.get()
