@@ -1,7 +1,8 @@
 import humanize
 import uuid
 import pandas as pd
-import time
+from time import sleep
+import os
 
 from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets
 from googleapiclient.discovery import build
@@ -16,6 +17,59 @@ def read_string_from_file(read_path):
     return read_string
 
 
+def convert_file_to_string(f, source_format='csv'):
+    assert source_format.lower() in ('csv', 'json')
+
+    from io import BytesIO
+    io_output = BytesIO()
+
+    if source_format == 'csv':
+        import csv
+        string_writer = csv.writer(io_output, lineterminator='\n')
+
+        # file path to .csv
+        if isinstance(f, str):
+            assert os.path.exists(f)
+
+            with open(f, 'rb') as read_file:
+                string_writer.writerows(csv.reader(read_file))
+
+        # also accepts list of lists
+        elif any(isinstance(el, list) for el in f):
+            string_writer.writerows(f)
+
+        else:
+            raise TypeError('Only file path or list of lists accepted')
+
+    elif source_format == 'json':
+        import json
+
+        # can be loaded from file path or string in a json structure
+        if isinstance(f, str):
+            if os.path.exists(f):
+                json_obj = json.load(f)
+            else:
+                json_obj = json.loads(f)
+
+        else:
+            try:
+                json.dumps(f)
+                json_obj = f
+            except TypeError as e:
+                raise e
+
+        for index, obj in enumerate(json_obj):
+            if index < len(json_obj) - 1:
+                io_output.write(json.dumps(obj) + '\n')
+            else:
+                io_output.write(json.dumps(obj))
+
+    return_string = io_output.getvalue()
+    io_output.close()
+
+    return return_string
+
+
 class BigqueryUtility:
     def __init__(self, logger=None):
         try:
@@ -24,7 +78,6 @@ class BigqueryUtility:
             service = build('bigquery', 'v2', credentials=credentials)
 
         except ApplicationDefaultCredentialsError:
-            import os
             import sys
             import httplib2
             from oauth2client.file import Storage
@@ -351,7 +404,6 @@ class BigqueryUtility:
         return self._iterate_job_results(response, return_type, print_details)
 
     def _async_query(self, project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details):
-
         request_body = {
             'jobReference': {
                 'projectId': project_id,
@@ -383,10 +435,8 @@ class BigqueryUtility:
 
         return self._iterate_job_results(response, return_type, print_details)
 
-    def _iterate_job_results(self, response, returnType, print_details):
-        start_time = time.time()
-
-        self.poll_job_status(response)
+    def _iterate_job_results(self, response, return_type, print_details):
+        response = self.poll_job_status(response, print_details)
 
         returnList = []
 
@@ -414,26 +464,11 @@ class BigqueryUtility:
                 for row in response['rows']:
                     returnList.append([item['v'] for item in row['f']])
 
-            time.sleep(1)
+            sleep(1)
 
-        m, s = divmod((time.time() - start_time), 60)
-        timeTaken = '%02d Minutes %02d Seconds' % (m, s)
-
-        logging_string = 'Data retrieved with %d rows and %s processed (%s)' % (
-                int(response['totalRows']),
-                humanize.naturalsize(int(response['totalBytesProcessed'])),
-                timeTaken
-            )
-
-        if print_details:
-            print '\t%s' % logging_string
-
-        if self._logger is not None:
-            self._logger.info(logging_string)
-
-        if returnType == 'list':
+        if return_type == 'list':
             return returnList
-        elif returnType == 'dataframe':
+        elif return_type == 'dataframe':
             querySchema = self._get_query_schema(response)
 
             def _convert_timestamp(input_value):
@@ -461,40 +496,144 @@ class BigqueryUtility:
         else:
             raise TypeError('Data can only be exported as list or dataframe')
 
-    def poll_job_status(self, response):
-        try:
-            status_state = response['status']['state']
-        except KeyError:
-            status_state = None
+    def poll_job_status(self, response, print_details=True):
+        status_state = None
+
+        project_id = response['jobReference']['projectId']
+        job_id = response['jobReference']['jobId']
 
         while not status_state == 'DONE':
             response = self._jobs.get(
-                jobId=response['jobReference']['jobId'],
-                projectId=response['jobReference']['projectId']
+                jobId=job_id,
+                projectId=project_id
             ).execute()
 
             status_state = response['status']['state']
+            sleep(1)
 
         if 'errorResult' in response['status']:
-            err_msg = '%s: %s' % (response['status']['errorResult']['reason'], response['status']['errorResult']['message'])
-            raise Error(err_msg)
+            raise Error(response['status']['errorResult'])
+
+        # for logging
+        m, s = divmod(
+                (
+                    pd.datetime.utcfromtimestamp(float(response['statistics']['endTime']) / 1000) -
+                    pd.datetime.utcfromtimestamp(float(response['statistics']['creationTime']) / 1000)
+                ).seconds, 60)
+
+        time_taken = '%02d Minutes %02d Seconds' % (m, s)
+
+        if 'load' in response['statistics']:
+
+            destination_table = '%s:%s:%s' % (
+                response['configuration']['load']['destinationTable']['projectId'],
+                response['configuration']['load']['destinationTable']['datasetId'],
+                response['configuration']['load']['destinationTable']['tableId']
+            )
+
+            write_disposition = response['configuration']['load']['writeDisposition']
+            file_size = humanize.naturalsize(int(response['statistics']['load']['inputFileBytes']))
+            row_count = int(response['statistics']['load']['outputRows'])
+
+            logging_string = 'BigQuery Load Job (%s:%s) %s to %s with %d rows and %s processed (%s)' % (
+                    project_id,
+                    job_id,
+                    'appended' if write_disposition == 'WRITE_APPEND' else 'written',
+                    destination_table,
+                    row_count,
+                    file_size,
+                    time_taken
+                )
+
+        elif 'query' in response['statistics']:
+            is_async = bool(response['configuration']['query']['allowLargeResults']) if 'allowLargeResults' in response['configuration']['query'] else False
+
+            query_response = self._jobs.getQueryResults(
+                    projectId=response['jobReference']['projectId'],
+                    jobId=response['jobReference']['jobId'],
+                    maxResults=0
+                ).execute()
+
+            file_size = humanize.naturalsize(int(response['statistics']['query']['totalBytesProcessed']))
+            row_count = int(query_response['totalRows'])
+
+            if is_async:
+                destination_table = '%s:%s:%s' % (
+                    response['configuration']['query']['destinationTable']['projectId'],
+                    response['configuration']['query']['destinationTable']['datasetId'],
+                    response['configuration']['query']['destinationTable']['tableId']
+                )
+
+                write_disposition = response['configuration']['query']['writeDisposition']
+
+                logging_string = 'BigQuery Asynchronous Query Job (%s:%s) %s to %s with %d rows and %s processed (%s)' % (
+                        project_id,
+                        job_id,
+                        'appended' if write_disposition == 'WRITE_APPEND' else 'written',
+                        destination_table,
+                        row_count,
+                        file_size,
+                        time_taken
+                    )
+            else:
+                logging_string = 'BigQuery Synchronous Query Job (%s:%s) returned with %d rows and %s processed (%s)' % (
+                        project_id,
+                        job_id,
+                        row_count,
+                        file_size,
+                        time_taken
+                    )
+
+        elif 'extract' in response['statistics']:
+
+            source_table = '%s:%s:%s' % (
+                response['configuration']['extract']['sourceTable']['projectId'],
+                response['configuration']['extract']['sourceTable']['datasetId'],
+                response['configuration']['extract']['sourceTable']['tableId']
+            )
+
+            destination_uris = ', '.join(response['configuration']['extract']['destinationUris'])
+
+            logging_string = 'BigQuery Extract Job (%s:%s) exported %s to %s (%s)' % (
+                    project_id,
+                    job_id,
+                    source_table,
+                    destination_uris,
+                    time_taken
+                )
+
+        else:
+            logging_string = ''
+
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
 
         return response
+
+    def check_status_from_responses(self, response_list, print_details=True):
+        assert isinstance(response_list, (list, tuple, set))
+        return_list = []
+        for response in response_list:
+            return_list.append(self.poll_job_status(response, print_details))
+
+        return return_list
 
     def write_table(self,
                     project_id,
                     query,
-                    writeData,
+                    write_data,
                     writeDisposition='WRITE_TRUNCATE',
                     udfInlineCode=None,
                     print_details=True,
                     wait_finish=True):
-        start_time = time.time()
 
         # projectId, datasetId and tableId must be filled when writing to table
-        write_project_id = writeData['projectId']
-        write_dataset_id = writeData['datasetId']
-        write_table_id = writeData['tableId']
+        write_project_id = write_data['projectId']
+        write_dataset_id = write_data['datasetId']
+        write_table_id = write_data['tableId']
 
         request_body = {
             'jobReference': {
@@ -526,46 +665,23 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response)
-
-            response = self._jobs.getQueryResults(
-                projectId=project_id,
-                jobId=response['jobReference']['jobId']
-            ).execute()
-
-            m, s = divmod((time.time() - start_time), 60)
-            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
-
-            logging_string = '\tQuery %s to %s with %d rows and %s processed (%s)' % (
-                    'appended' if writeDisposition == 'WRITE_APPEND' else 'written',
-                    '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
-                    int(response['totalRows']),
-                    humanize.naturalsize(int(response['totalBytesProcessed'])),
-                    timeTaken
-                )
-            if print_details:
-                print '\t%s' % logging_string
-
-            if self._logger is not None:
-                self._logger.info(logging_string)
+            self.poll_job_status(response, print_details)
         else:
             return response
 
     def load_from_gcs(self,
-                      writeData,
+                      write_data,
                       writeDisposition='WRITE_TRUNCATE',
                       skipHeader=True,
                       print_details=True,
                       wait_finish=True):
 
-        start_time = time.time()
-
         # projectId, datasetId, tableId, schemaFields, sourceUri must be filled for load jobs
-        write_project_id = writeData['projectId']
-        write_dataset_id = writeData['datasetId']
-        write_table_id = writeData['tableId']
-        schema_fields = writeData['schemaFields']
-        source_uri = writeData['sourceUri']
+        write_project_id = write_data['projectId']
+        write_dataset_id = write_data['datasetId']
+        write_table_id = write_data['tableId']
+        schema_fields = write_data['schemaFields']
+        source_uri = write_data['sourceUri']
 
         request_body = {
             'jobReference': {
@@ -596,22 +712,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response)
-
-            m, s = divmod((time.time() - start_time), 60)
-            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
-
-            logging_string = '%s uploaded to %s (%s)' % (
-                    source_uri,
-                    '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
-                    timeTaken
-                )
-
-            if print_details:
-                print '\t%s' % logging_string
-
-            if self._logger is not None:
-                self._logger.info(logging_string)
+            self.poll_job_status(response, print_details)
         else:
             return response
 
@@ -624,8 +725,6 @@ class BigqueryUtility:
                       destinationFormat='CSV',
                       print_details=True,
                       wait_finish=True):
-
-        start_time = time.time()
 
         request_body = {
             'jobReference': {
@@ -653,27 +752,12 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response)
-
-            m, s = divmod((time.time() - start_time), 60)
-            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
-
-            logging_string = '%s extracted to %s (%s)' % (
-                    '%s:%s:%s' % (read_project_id, read_dataset_id, read_table_id),
-                    destinationUri,
-                    timeTaken
-                )
-
-            if print_details:
-                print '\t%s' % logging_string
-
-            if self._logger is not None:
-                self._logger.info(logging_string)
+            self.poll_job_status(response, print_details)
         else:
             return response
 
     def load_from_string(self,
-                        writeData,
+                        write_data,
                         load_string,
                         source_format='CSV',
                         skipHeader=True,
@@ -683,13 +767,11 @@ class BigqueryUtility:
 
         assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
 
-        start_time = time.time()
-
         # projectId, datasetId, tableId, schemaFields must be filled for load jobs
-        write_project_id = writeData['projectId']
-        write_dataset_id = writeData['datasetId']
-        write_table_id = writeData['tableId']
-        schema_fields = writeData['schemaFields']
+        write_project_id = write_data['projectId']
+        write_dataset_id = write_data['datasetId']
+        write_table_id = write_data['tableId']
+        schema_fields = write_data['schemaFields']
 
         request_body = {
             'jobReference': {
@@ -709,7 +791,7 @@ class BigqueryUtility:
                         'fields': schema_fields
                     },
                     'sourceFormat': source_format,
-                    'skipLeadingRows': 1 if skipHeader else 0
+                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else 0
                 }
             }
         }
@@ -723,20 +805,6 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response)
-
-            m, s = divmod((time.time() - start_time), 60)
-            timeTaken = '%02d Minutes %02d Seconds' % (m, s)
-
-            logging_string = 'Uploaded to %s (%s)' % (
-                    '%s:%s:%s' % (write_project_id, write_dataset_id, write_table_id),
-                    timeTaken
-                )
-
-            if print_details:
-                print '\t%s' % logging_string
-
-            if self._logger is not None:
-                self._logger.info(logging_string)
+            self.poll_job_status(response, print_details)
         else:
             return response
