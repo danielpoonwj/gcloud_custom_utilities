@@ -329,7 +329,7 @@ class AdwordsReportCleaner:
             return None
         elif field_type == 'Money':
             # Money is returned as micro units
-            return float(value) / 1000000.0
+            return round(float(value) / 1000000.0, 4)
         elif field_type == 'Date':
             return datetime.strptime(value, '%Y-%m-%d').strftime('%Y-%m-%d %H:%M:%S')
         elif field_type in self._bq_map:
