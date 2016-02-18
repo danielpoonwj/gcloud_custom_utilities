@@ -671,10 +671,13 @@ class BigqueryUtility:
 
     def load_from_gcs(self,
                       write_data,
-                      writeDisposition='WRITE_TRUNCATE',
+                      source_format='CSV',
                       skipHeader=True,
+                      writeDisposition='WRITE_TRUNCATE',
                       print_details=True,
                       wait_finish=True):
+
+        assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
 
         # projectId, datasetId, tableId, schemaFields, sourceUri must be filled for load jobs
         write_project_id = write_data['projectId']
@@ -697,11 +700,12 @@ class BigqueryUtility:
                         'tableId': write_table_id
                     },
                     'writeDisposition': writeDisposition,
-                    'skipLeadingRows': 1 if skipHeader else 0,
+                    'sourceFormat': source_format,
+                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else 0,
                     'schema': {
                         'fields': schema_fields
                     },
-                    'sourceUris': [source_uri]
+                    'sourceUris': source_uri if isinstance(source_uri, list) else [source_uri]
                 }
             }
         }
