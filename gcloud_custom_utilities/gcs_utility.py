@@ -205,10 +205,10 @@ class GcsUtility:
         meta_data = self.get_object_metadata(bucket_name, object_name, subfolders)
         file_size = humanize.naturalsize(int(meta_data['size']))
 
-        logging_string = 'Downloaded gs://%s/%s (%s)' % (meta_data['bucket'], meta_data['name'], file_size)
+        logging_string = '[GCS] Downloaded gs://%s/%s (%s)' % (meta_data['bucket'], meta_data['name'], file_size)
 
         if print_results:
-            print logging_string
+            print '\t' + logging_string
 
         if self._logger is not None:
             self._logger.info(logging_string)
@@ -255,7 +255,7 @@ class GcsUtility:
 
         time_taken = '%02d Minutes %02d Seconds' % (m, s)
 
-        logging_string = 'Uploaded to gs://%s/%s [%s] (%s)' % (
+        logging_string = '[GCS] Uploaded to gs://%s/%s [%s] (%s)' % (
             response['bucket'],
             response['name'],
             file_size,
@@ -263,7 +263,7 @@ class GcsUtility:
         )
 
         if print_results:
-            print logging_string
+            print '\t' + logging_string
 
         if self._logger is not None:
             self._logger.info(logging_string)
@@ -276,13 +276,13 @@ class GcsUtility:
                 object=self._parse_object_name(object_name, subfolders)
             ).execute()
 
-        logging_string = 'Deleted gs://%s/%s' % (
+        logging_string = '[GCS] Deleted gs://%s/%s' % (
             bucket_name,
             self._parse_object_name(object_name, subfolders)
         )
 
         if print_results:
-            print logging_string
+            print '\t' + logging_string
 
         if self._logger is not None:
             self._logger.info(logging_string)

@@ -363,7 +363,7 @@ class BigqueryUtility:
             tableId=table_id
         ).execute()
 
-        logging_string = 'Deleted %s:%s:%s' % (project_id, dataset_id, table_id)
+        logging_string = '[BigQuery] Deleted %s:%s:%s' % (project_id, dataset_id, table_id)
 
         if print_results:
             print '\t%s' % logging_string
@@ -535,7 +535,7 @@ class BigqueryUtility:
             file_size = humanize.naturalsize(int(response['statistics']['load']['inputFileBytes']))
             row_count = int(response['statistics']['load']['outputRows'])
 
-            logging_string = 'BigQuery Load Job (%s:%s) %s to %s with %d rows and %s processed (%s)' % (
+            logging_string = '[BigQuery] Load Job (%s:%s) %s to %s with %d rows and %s processed (%s)' % (
                     project_id,
                     job_id,
                     'appended' if write_disposition == 'WRITE_APPEND' else 'written',
@@ -566,7 +566,7 @@ class BigqueryUtility:
 
                 write_disposition = response['configuration']['query']['writeDisposition']
 
-                logging_string = 'BigQuery Asynchronous Query Job (%s:%s) %s to %s with %d rows and %s processed (%s)' % (
+                logging_string = '[BigQuery] Asynchronous Query Job (%s:%s) %s to %s with %d rows and %s processed (%s)' % (
                         project_id,
                         job_id,
                         'appended' if write_disposition == 'WRITE_APPEND' else 'written',
@@ -576,7 +576,7 @@ class BigqueryUtility:
                         time_taken
                     )
             else:
-                logging_string = 'BigQuery Synchronous Query Job (%s:%s) returned with %d rows and %s processed (%s)' % (
+                logging_string = '[BigQuery] Synchronous Query Job (%s:%s) returned with %d rows and %s processed (%s)' % (
                         project_id,
                         job_id,
                         row_count,
@@ -594,7 +594,7 @@ class BigqueryUtility:
 
             destination_uris = ', '.join(response['configuration']['extract']['destinationUris'])
 
-            logging_string = 'BigQuery Extract Job (%s:%s) exported %s to %s (%s)' % (
+            logging_string = '[BigQuery] Extract Job (%s:%s) exported %s to %s (%s)' % (
                     project_id,
                     job_id,
                     source_table,
