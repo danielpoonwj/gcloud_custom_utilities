@@ -24,7 +24,7 @@ def convert_file_to_string(f, source_format='csv'):
     io_output = BytesIO()
 
     if source_format == 'csv':
-        import csv
+        import unicodecsv as csv
         string_writer = csv.writer(io_output, lineterminator='\n')
 
         # file path to .csv

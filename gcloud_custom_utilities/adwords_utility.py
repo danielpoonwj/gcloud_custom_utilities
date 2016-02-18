@@ -325,7 +325,7 @@ class AdwordsReportCleaner:
                 if field_name == function_dict['name']:
                     return function_dict['function'](value)
 
-        if str(value).strip() == '--':
+        if value.strip() == '--':
             return None
         elif field_type == 'Money':
             # Money is returned as micro units, divide and round to 6 dp to avoid representation errors when dividing
