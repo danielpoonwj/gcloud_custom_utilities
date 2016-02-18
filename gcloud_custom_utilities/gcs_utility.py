@@ -1,5 +1,6 @@
 import humanize
-import time
+from time import sleep
+from datetime import datetime
 from urllib2 import quote
 from httplib2 import HttpLib2Error
 import random
@@ -12,7 +13,6 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 
 class GcsUtility:
-
     def __init__(self, logger=None):
         try:
             credentials = GoogleCredentials.get_application_default()
@@ -170,7 +170,7 @@ class GcsUtility:
         sleeptime = random.random() * (2**progressless_iters)
         print ('Caught exception (%s). Sleeping for %s seconds before retry #%d.'
                 % (str(error), sleeptime, progressless_iters))
-        time.sleep(sleeptime)
+        sleep(sleeptime)
 
     def download_object(self, bucket_name, object_name, write_path, subfolders=None, print_results=True):
         write_file = file(write_path, 'wb')
@@ -202,9 +202,10 @@ class GcsUtility:
             else:
                 progressless_iters = 0
 
-        file_size = humanize.naturalsize(int(self.get_object_metadata(bucket_name, object_name, subfolders)['size']))
+        meta_data = self.get_object_metadata(bucket_name, object_name, subfolders)
+        file_size = humanize.naturalsize(int(meta_data['size']))
 
-        logging_string = 'Downloaded %s:%s (%s)' % (bucket_name, object_name, file_size)
+        logging_string = 'Downloaded gs://%s/%s (%s)' % (meta_data['bucket'], meta_data['name'], file_size)
 
         if print_results:
             print logging_string
@@ -245,7 +246,40 @@ class GcsUtility:
 
         file_size = humanize.naturalsize(int(response['size']))
 
-        logging_string = 'Uploaded to %s:%s (%s)' % (bucket_name, object_name, file_size)
+        # for logging
+        m, s = divmod(
+                (
+                    datetime.utcnow() -
+                    datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                ).seconds, 60)
+
+        time_taken = '%02d Minutes %02d Seconds' % (m, s)
+
+        logging_string = 'Uploaded to gs://%s/%s [%s] (%s)' % (
+            response['bucket'],
+            response['name'],
+            file_size,
+            time_taken
+        )
+
+        if print_results:
+            print logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
+    def delete_object(self, bucket_name, object_name, subfolders=None, print_results=True):
+        response = None
+        while response is None:
+            response = self._objects.delete(
+                bucket=bucket_name,
+                object=self._parse_object_name(object_name, subfolders)
+            ).execute()
+
+        logging_string = 'Deleted gs://%s/%s' % (
+            bucket_name,
+            self._parse_object_name(object_name, subfolders)
+        )
 
         if print_results:
             print logging_string
