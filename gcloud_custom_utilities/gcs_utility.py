@@ -214,6 +214,8 @@ class GcsUtility:
             self._logger.info(logging_string)
 
     def upload_object(self, bucket_name, object_name, read_path, subfolders=None, print_results=True):
+        process_start_time = datetime.utcnow()
+
         media = MediaFileUpload(read_path, chunksize=self._CHUNKSIZE, resumable=True)
 
         if not media.mimetype():
@@ -249,8 +251,8 @@ class GcsUtility:
         # for logging
         m, s = divmod(
                 (
-                    datetime.utcnow() -
-                    datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ')
+                    datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ') -
+                    process_start_time
                 ).seconds, 60)
 
         time_taken = '%02d Minutes %02d Seconds' % (m, s)
