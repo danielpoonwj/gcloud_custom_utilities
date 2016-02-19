@@ -172,7 +172,7 @@ class GcsUtility:
                 % (str(error), sleeptime, progressless_iters))
         sleep(sleeptime)
 
-    def download_object(self, bucket_name, object_name, write_path, subfolders=None, print_results=True):
+    def download_object(self, bucket_name, object_name, write_path, subfolders=None, print_details=True):
         write_file = file(write_path, 'wb')
 
         request = self._objects.get_media(
@@ -207,13 +207,13 @@ class GcsUtility:
 
         logging_string = '[GCS] Downloaded gs://%s/%s (%s)' % (meta_data['bucket'], meta_data['name'], file_size)
 
-        if print_results:
+        if print_details:
             print '\t' + logging_string
 
         if self._logger is not None:
             self._logger.info(logging_string)
 
-    def upload_object(self, bucket_name, object_name, read_path, subfolders=None, print_results=True):
+    def upload_object(self, bucket_name, object_name, read_path, subfolders=None, print_details=True):
         process_start_time = datetime.utcnow()
 
         media = MediaFileUpload(read_path, chunksize=self._CHUNKSIZE, resumable=True)
@@ -264,13 +264,13 @@ class GcsUtility:
             time_taken
         )
 
-        if print_results:
+        if print_details:
             print '\t' + logging_string
 
         if self._logger is not None:
             self._logger.info(logging_string)
 
-    def delete_object(self, bucket_name, object_name, subfolders=None, print_results=True):
+    def delete_object(self, bucket_name, object_name, subfolders=None, print_details=True):
         response = None
         while response is None:
             response = self._objects.delete(
@@ -283,7 +283,7 @@ class GcsUtility:
             self._parse_object_name(object_name, subfolders)
         )
 
-        if print_results:
+        if print_details:
             print '\t' + logging_string
 
         if self._logger is not None:
