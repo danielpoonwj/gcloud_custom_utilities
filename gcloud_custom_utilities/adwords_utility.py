@@ -79,6 +79,25 @@ class AdwordsUtility:
         account_list = self._iterate_pages(service, selector, output_type)
         return account_list
 
+    def list_account_labels(self):
+
+        service = self._client.GetService('AccountLabelService', version=self._service_version)
+
+        # Default values
+        fields = ['LabelName', 'LabelId']
+
+        # Construct selector
+        selector = {
+            'fields': fields,
+            'paging': {
+                'startIndex': '0',
+                'numberResults': str(self._PAGE_SIZE)
+            }
+        }
+
+        account_label_list = service.get(selector)['labels']
+        return account_label_list
+
     def list_campaigns(self, fields=None, predicates=None, output_type='object'):
 
         assert isinstance(fields, list) if fields is not None else True
