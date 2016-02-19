@@ -13,12 +13,18 @@ class AdwordsUtility:
             else:
                 raise KeyError('client_customer_id has to be filled in googleads.yaml or input as an argument')
 
+        # assuming original input is the mcc account id
+        self._MCC_ACCOUNT_ID = self._client.client_customer_id
+
         self._service_version = service_version
 
         self._PAGE_SIZE = 500
 
     def change_client_customer_id(self, client_customer_id):
         self._client.SetClientCustomerId(client_customer_id)
+
+    def reset_to_mcc_id(self):
+        self._client.SetClientCustomerId(self._MCC_ACCOUNT_ID)
 
     def _parse_object(self, fields, input_object, output_type):
         assert output_type in ('object', 'dict', 'list')
@@ -55,7 +61,7 @@ class AdwordsUtility:
 
         return return_list
 
-    def list_accounts(self, fields=None, predicates=None, output_type='object'):
+    def list_accounts(self, fields=None, predicates=None, account_labels=None, include_hidden=False, include_mcc=False, output_type='object'):
 
         assert isinstance(fields, list) if fields is not None else True
         assert isinstance(predicates, list) if predicates is not None else True
@@ -65,6 +71,39 @@ class AdwordsUtility:
         # Default values
         fields = ['Name', 'CustomerId'] if fields is None else fields
         predicates = [] if predicates is None else predicates
+
+        if not include_hidden:
+            predicates.append(
+                {
+                    'field': 'ExcludeHiddenAccounts',
+                    'operator': 'EQUALS',
+                    'values': 'TRUE'
+                }
+            )
+
+        if not include_mcc:
+            predicates.append(
+                {
+                    'field': 'CanManageClients',
+                    'operator': 'EQUALS',
+                    'values': 'FALSE'
+                }
+            )
+
+        if account_labels is not None:
+            if not isinstance(account_labels, list):
+                account_labels = [account_labels]
+
+            account_label_list = self._list_account_labels()
+            account_labels = [x['id'] for x in account_label_list if x['name'] in account_labels]
+
+            predicates.append(
+                {
+                    'field': 'AccountLabels',
+                    'operator': 'CONTAINS_ANY',
+                    'values': account_labels
+                }
+            )
 
         # Construct selector
         selector = {
@@ -79,7 +118,7 @@ class AdwordsUtility:
         account_list = self._iterate_pages(service, selector, output_type)
         return account_list
 
-    def list_account_labels(self):
+    def _list_account_labels(self):
 
         service = self._client.GetService('AccountLabelService', version=self._service_version)
 
@@ -97,6 +136,77 @@ class AdwordsUtility:
 
         account_label_list = service.get(selector)['labels']
         return account_label_list
+
+    def get_account_overview(self, start_date, end_date, account_labels=None, include_hidden=False):
+        """
+        Gets account level details from all accounts (with filters) for given date range
+        :param start_date: report start date
+        :param end_date: report end date
+        :param account_labels: provide list of account labels to filter by if applicable
+        :param include_hidden: include hidden accounts
+        :return: dictionary {date: {account_id: {metrics}}}
+        """
+        report_type = 'ACCOUNT_PERFORMANCE_REPORT'
+
+        account_list = [
+                (account['name'], account['customerId']) for account
+                in self.list_accounts(account_labels=account_labels, include_hidden=include_hidden)
+            ]
+
+        # for final matching against report data
+        account_dict = dict(account_list)
+
+        report_fields = [
+            ('Date', 'date'),
+            ('AccountDescriptiveName', 'account_name'),
+            ('Cost', 'cost'),
+            ('Impressions', 'impressions'),
+            ('Clicks', 'clicks'),
+            ('Conversions', 'conversions')
+        ]
+
+        report_cleaner = AdwordsReportCleaner(
+                self,
+                report_type,
+                [x[0] for x in report_fields]
+        )
+
+        result_list = []
+        for account_id in [x[1] for x in account_list]:
+            self.change_client_customer_id(account_id)
+
+            result_list += self.download_report_as_string(
+                report_type='ACCOUNT_PERFORMANCE_REPORT',
+                fields=[x[0] for x in report_fields],
+                start_date=start_date,
+                end_date=end_date,
+                skip_column_header=True,
+                include_zero_impressions=True
+            ).strip('\n').split('\n')
+
+        import unicodecsv as csv
+        from pandas import date_range as get_date_range
+
+        data = csv.reader(result_list)
+        data = report_cleaner.clean_data(data)
+
+        header = [x[1] for x in report_fields]
+        return_dict = dict()
+
+        date_range = get_date_range(start_date, end_date)
+
+        for process_date in date_range:
+            date_key = process_date.strftime('%Y%m%d')
+            return_dict.setdefault(date_key, {})
+
+            for index, row in enumerate(data):
+                temp_dict = dict(zip(header, row))
+                if process_date.strftime('%Y-%m-%d %H:%M:%S') == temp_dict['date']:
+                    account_id = account_dict[temp_dict['account_name']]
+                    temp_dict.pop('date')
+                    return_dict[date_key][account_id] = temp_dict
+
+        return return_dict
 
     def list_campaigns(self, fields=None, predicates=None, output_type='object'):
 
@@ -348,14 +458,14 @@ class AdwordsReportCleaner:
             return None
         elif field_type == 'Money':
             # Money is returned as micro units, divide and round to 6 dp to avoid representation errors when dividing
-            return round(float(value) / 1000000.0, 6)
+            return round(float(value.replace(',', '')) / 1000000.0, 6)
         elif field_type == 'Date':
             return datetime.strptime(value, '%Y-%m-%d').strftime('%Y-%m-%d %H:%M:%S')
         elif field_type in self._bq_map:
             if self._bq_map[field_type] == 'FLOAT':
-                return float(value)
+                return float(value.replace(',', ''))
             if self._bq_map[field_type] == 'INTEGER':
-                return int(value)
+                return int(value.replace(',', ''))
         else:
             return value
 
