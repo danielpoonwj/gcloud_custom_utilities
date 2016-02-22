@@ -188,7 +188,7 @@ class AdwordsUtility:
         from pandas import date_range as get_date_range
 
         data = csv.reader(result_list)
-        data = report_cleaner.clean_data(data)
+        data = [report_cleaner.clean_data(row) for row in data]
 
         header = [x[1] for x in report_fields]
         return_dict = dict()
@@ -469,15 +469,11 @@ class AdwordsReportCleaner:
         else:
             return value
 
-    def clean_data(self, iterable):
-        result = []
-        for row in iterable:
-            cleaned_row = []
-            for index, value in enumerate(row):
-                field_name = self._report_fields[index]
-                field_type = self._field_types[field_name]
-                cleaned_row.append(self._cleaner(value, field_name, field_type))
+    def clean_data(self, row):
+        cleaned_row = []
+        for index, value in enumerate(row):
+            field_name = self._report_fields[index]
+            field_type = self._field_types[field_name]
+            cleaned_row.append(self._cleaner(value, field_name, field_type))
 
-            result.append(cleaned_row)
-
-        return result
+        return cleaned_row
