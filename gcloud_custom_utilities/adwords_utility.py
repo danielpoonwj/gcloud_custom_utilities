@@ -465,7 +465,7 @@ class AdwordsReportCleaner:
             if self._bq_map[field_type] == 'FLOAT':
                 return float(value.replace(',', ''))
             if self._bq_map[field_type] == 'INTEGER':
-                return int(value.replace(',', ''))
+                return int(float(value.replace(',', '')))
         else:
             return value
 
