@@ -1,5 +1,6 @@
 from googleads import adwords
 from datetime import datetime
+from ast import literal_eval
 
 
 class AdwordsUtility:
@@ -148,17 +149,12 @@ class AdwordsUtility:
         """
         report_type = 'ACCOUNT_PERFORMANCE_REPORT'
 
-        account_list = [
-                (account['name'], account['customerId']) for account
-                in self.list_accounts(account_labels=account_labels, include_hidden=include_hidden)
-            ]
-
-        # for final matching against report data
-        account_dict = dict(account_list)
+        account_list = [account['customerId'] for account in self.list_accounts(account_labels=account_labels, include_hidden=include_hidden)]
 
         report_fields = [
             ('Date', 'date'),
             ('AccountDescriptiveName', 'account_name'),
+            ('ExternalCustomerId', 'account_id'),
             ('Cost', 'cost'),
             ('Impressions', 'impressions'),
             ('Clicks', 'clicks'),
@@ -172,7 +168,7 @@ class AdwordsUtility:
         )
 
         result_list = []
-        for account_id in [x[1] for x in account_list]:
+        for account_id in account_list:
             self.change_client_customer_id(account_id)
 
             result_list += self.download_report_as_string(
@@ -194,17 +190,16 @@ class AdwordsUtility:
         return_dict = dict()
 
         date_range = get_date_range(start_date, end_date)
-
         for process_date in date_range:
             date_key = process_date.strftime('%Y%m%d')
             return_dict.setdefault(date_key, {})
 
-            for index, row in enumerate(data):
-                temp_dict = dict(zip(header, row))
-                if process_date.strftime('%Y-%m-%d %H:%M:%S') == temp_dict['date']:
-                    account_id = account_dict[temp_dict['account_name']]
-                    temp_dict.pop('date')
-                    return_dict[date_key][account_id] = temp_dict
+        for row in data:
+            temp_dict = dict(zip(header, row))
+            row_date = temp_dict.pop('date')
+            row_date = datetime.strptime(row_date, '%Y-%m-%d %H:%M:%S').strftime('%Y%m%d')
+            row_account_id = temp_dict.pop('account_id')
+            return_dict[row_date][row_account_id] = temp_dict
 
         return return_dict
 
@@ -456,6 +451,8 @@ class AdwordsReportCleaner:
 
         if value.strip() == '--':
             return None
+        elif 'List' in field_type:
+            return ';'.join(literal_eval(value))
         elif field_type == 'Money':
             # Money is returned as micro units, divide and round to 6 dp to avoid representation errors when dividing
             return round(float(value.replace(',', '')) / 1000000.0, 6)
