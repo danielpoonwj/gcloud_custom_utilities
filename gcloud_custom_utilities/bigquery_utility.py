@@ -183,8 +183,11 @@ class BigqueryUtility:
             stateFilter=state_filter
         ).execute()
 
-        job_list += response['jobs']
-        job_count += len(response['jobs'])
+        if 'jobs' in response:
+            job_list += response['jobs']
+            job_count += len(response['jobs'])
+        else:
+            return job_list
 
         if job_count > max_results:
             job_list = job_list[:max_results]
@@ -672,6 +675,7 @@ class BigqueryUtility:
     def load_from_gcs(self,
                       write_data,
                       source_format='CSV',
+                      field_delimiter=',',
                       skipHeader=True,
                       writeDisposition='WRITE_TRUNCATE',
                       print_details=True,
@@ -702,6 +706,7 @@ class BigqueryUtility:
                     'writeDisposition': writeDisposition,
                     'sourceFormat': source_format,
                     'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else 0,
+                    'fieldDelimiter': field_delimiter if source_format == 'CSV' else None,
                     'schema': {
                         'fields': schema_fields
                     },
