@@ -705,7 +705,7 @@ class BigqueryUtility:
                     },
                     'writeDisposition': writeDisposition,
                     'sourceFormat': source_format,
-                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else 0,
+                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else None,
                     'fieldDelimiter': field_delimiter if source_format == 'CSV' else None,
                     'schema': {
                         'fields': schema_fields
@@ -800,7 +800,7 @@ class BigqueryUtility:
                         'fields': schema_fields
                     },
                     'sourceFormat': source_format,
-                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else 0
+                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else None
                 }
             }
         }
