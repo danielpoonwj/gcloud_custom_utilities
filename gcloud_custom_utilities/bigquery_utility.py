@@ -302,8 +302,8 @@ class BigqueryUtility:
             tableId=table_id
         ).execute()
 
-    def get_sharded_date_range(self, project_id, dataset_id, print_results=True):
-        tableList = self.list_tables(project_id, dataset_id)
+    def get_sharded_date_range(self, project_id, dataset_id, print_details=True):
+        tableList = self.list_tables(project_id, dataset_id, max_results=100000)
 
         tableDict = {}
         returnDict = {}
@@ -337,7 +337,7 @@ class BigqueryUtility:
                     'missing_dates': missing_dates
                 }
 
-            if print_results:
+            if print_details:
                 for key in returnDict.keys():
                     print 'Group Name: %s' % key
                     print 'Min Date: %s' % returnDict[key]['min_date'].strftime('%Y-%m-%d')
@@ -359,7 +359,7 @@ class BigqueryUtility:
 
         return response['schema']['fields']
 
-    def delete_table(self, project_id, dataset_id, table_id, print_results=True):
+    def delete_table(self, project_id, dataset_id, table_id, print_details=True):
         self._tables.delete(
             projectId=project_id,
             datasetId=dataset_id,
@@ -368,7 +368,7 @@ class BigqueryUtility:
 
         logging_string = '[BigQuery] Deleted %s:%s:%s' % (project_id, dataset_id, table_id)
 
-        if print_results:
+        if print_details:
             print '\t%s' % logging_string
 
         if self._logger is not None:
