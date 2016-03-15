@@ -4,9 +4,9 @@ import pandas as pd
 from time import sleep
 import os
 
-from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets
+from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets, UnknownClientSecretsFlowError
 from googleapiclient.discovery import build
-from googleapiclient.errors import Error
+from googleapiclient.errors import Error, HttpError
 from googleapiclient.http import MediaInMemoryUpload
 pd.set_option('expand_frame_repr', False)
 
@@ -71,16 +71,20 @@ def convert_file_to_string(f, source_format='csv'):
 
 
 class BigqueryUtility:
-    def __init__(self, logger=None):
-        try:
-            # try building from application default
-            credentials = GoogleCredentials.get_application_default()
-            service = build('bigquery', 'v2', credentials=credentials)
+    def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None):
 
-        except ApplicationDefaultCredentialsError:
-            import sys
+        if authentication_type == 'Default Credentials':
+            # try building from application default
+            try:
+                credentials = GoogleCredentials.get_application_default()
+                service = build('bigquery', 'v2', credentials=credentials)
+            except ApplicationDefaultCredentialsError as e:
+                print 'Application Default Credentials unavailable. To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
+                raise e
+
+        elif authentication_type == 'Stored Credentials':
             import httplib2
-            from oauth2client.file import Storage
+            from oauth2client.contrib import multistore_file
             from oauth2client.tools import run_flow, argparser
 
             try:
@@ -91,46 +95,24 @@ class BigqueryUtility:
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/bigquery'
 
-            print 'Application Default Credentials unavailable.'
-            print 'To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
-
-            to_continue = None
-
-            while to_continue not in ('y', 'n'):
-                to_continue = raw_input('Alternatively, authenticate through Client Secret? [y/n]: ').lower()
-
-            if to_continue == 'n':
-                sys.exit(0)
-
-            print 'Input client secret path. For more detailed instructions, press enter.'
-            CLIENT_SECRET = raw_input('Client Secret Path: ').strip()
-
-            if CLIENT_SECRET is None or not os.path.exists(CLIENT_SECRET):
-                print 'Instructions for generating Client Secret file:'
-                print '1. Go to https://console.developers.google.com/'
-                print '2. Under the Projects dropdown menu, click create a project. This will be a project specific to your login account'
-                print '3. Once the new project is created, select that project, and navigate to API Manager'
-                print '4. Under the API Manager submenu, click on Credentials and click Create credentials. Select OAuth client ID, with the Application type as Other.'
-                print '5. After it has been successfully created, you will have the option of downloading it as json.'
-                sys.exit(0)
-
-            print 'Input credentials filepath. If file does not currently exist, one will be created for you.\n'
-            CREDS_FILE = raw_input('Credentials Path: ').strip()
-
-            storage = Storage(CREDS_FILE)
+            assert user_name is not None and credential_file_path is not None and os.path.exists(credential_file_path)
+            storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
             credentials = storage.get()
 
-            FLOW = flow_from_clientsecrets(CLIENT_SECRET, scope=OAUTH_SCOPE)
-
             if credentials is None or credentials.invalid:
-                # Run through the OAuth flow and retrieve credentials
+                if client_secret_path is None or not os.path.exists(client_secret_path):
+                    raise UnknownClientSecretsFlowError('Credentials unavailable. Please provide a valid client_secret_path to rerun authentication')
+
+                FLOW = flow_from_clientsecrets(client_secret_path, scope=OAUTH_SCOPE)
                 credentials = run_flow(FLOW, storage, flags)
 
-            # Create an httplib2.Http object and authorize it with our credentials
+            # Create an httplib2.Http object and authorize it with your credentials
             http = httplib2.Http()
             http = credentials.authorize(http)
 
             service = build('bigquery', 'v2', http=http)
+        else:
+            raise TypeError('Authentication types available are "Default Credentials" and "Stored Credentials"')
 
         self._service = service
         self._datasets = self._service.datasets()
@@ -499,7 +481,7 @@ class BigqueryUtility:
         else:
             raise TypeError('Data can only be exported as list or dataframe')
 
-    def poll_job_status(self, response, print_details=True):
+    def poll_job_status(self, response, print_details=True, sleep_time=1):
         status_state = None
 
         project_id = response['jobReference']['projectId']
@@ -512,7 +494,7 @@ class BigqueryUtility:
             ).execute()
 
             status_state = response['status']['state']
-            sleep(1)
+            sleep(sleep_time)
 
         if 'errorResult' in response['status']:
             raise Error(response['status']['errorResult'])
@@ -616,11 +598,11 @@ class BigqueryUtility:
 
         return response
 
-    def check_status_from_responses(self, response_list, print_details=True):
+    def check_status_from_responses(self, response_list, print_details=True, sleep_time=1):
         assert isinstance(response_list, (list, tuple, set))
         return_list = []
         for response in response_list:
-            return_list.append(self.poll_job_status(response, print_details))
+            return_list.append(self.poll_job_status(response, print_details, sleep_time))
 
         return return_list
 
@@ -662,6 +644,18 @@ class BigqueryUtility:
             }
         }
 
+        # error would be raised if overwriting a view, check if exists and delete first
+        try:
+            existing_table = self.get_table_info(write_project_id, write_dataset_id, write_table_id)
+            if existing_table['type'] == 'VIEW':
+                self.delete_table(write_project_id, write_dataset_id, write_table_id, print_details=print_details)
+        except HttpError as e:
+            # table does not exist
+            if e.resp.status == 404:
+                pass
+            else:
+                raise e
+
         response = self._jobs.insert(
             projectId=project_id,
             body=request_body
@@ -671,6 +665,64 @@ class BigqueryUtility:
             self.poll_job_status(response, print_details)
         else:
             return response
+
+    def write_view(self,
+                    query,
+                    write_data,
+                    udfInlineCode=None,
+                    overwrite_existing=True,
+                    print_details=True):
+
+        # projectId, datasetId and tableId must be filled when writing to view
+        write_project_id = write_data['projectId']
+        write_dataset_id = write_data['datasetId']
+        write_table_id = write_data['tableId']
+
+        request_body = {
+            'tableReference': {
+                'projectId': write_project_id,
+                'datasetId': write_dataset_id,
+                'tableId': write_table_id
+            },
+            'view': {
+                'userDefinedFunctionResources': [
+                    None if udfInlineCode is None else {'inlineCode': udfInlineCode}
+                ],
+                'query': query
+            }
+        }
+
+        # error would be raised if table/view already exists, delete first before reinserting
+        try:
+            response = self._tables.insert(
+                projectId=write_project_id,
+                datasetId=write_dataset_id,
+                body=request_body
+            ).execute()
+        except HttpError as e:
+            if e.resp.status == 409 and overwrite_existing:
+                self.delete_table(write_project_id, write_dataset_id, write_table_id, print_details=print_details)
+                response = self._tables.insert(
+                    projectId=write_project_id,
+                    datasetId=write_dataset_id,
+                    body=request_body
+                ).execute()
+            else:
+                raise e
+
+        logging_string = '[BigQuery] View Inserted (%s:%s:%s)' % (
+                write_project_id,
+                write_dataset_id,
+                write_table_id
+            )
+
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
+        return response
 
     def load_from_gcs(self,
                       write_data,
