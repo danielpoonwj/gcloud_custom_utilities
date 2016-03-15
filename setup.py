@@ -11,6 +11,7 @@ setup(name='gcloud_custom_utilities',
         'humanize',
         'pandas',
         'google-api-python-client>=1.5',
+        'oauth2client>=2.0.1',
         'googleads',
         'unicodecsv',
         'pytz'
