@@ -5,7 +5,7 @@ from urllib2 import quote
 from httplib2 import HttpLib2Error
 import random
 
-from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets
+from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets, UnknownClientSecretsFlowError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -13,16 +13,21 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 
 class GcsUtility:
-    def __init__(self, logger=None):
-        try:
-            credentials = GoogleCredentials.get_application_default()
-            service = build('storage', 'v1', credentials=credentials)
+    def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None):
 
-        except ApplicationDefaultCredentialsError:
+        if authentication_type == 'Default Credentials':
+            # try building from application default
+            try:
+                credentials = GoogleCredentials.get_application_default()
+                service = build('storage', 'v1', credentials=credentials)
+            except ApplicationDefaultCredentialsError as e:
+                print 'Application Default Credentials unavailable. To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
+                raise e
+
+        elif authentication_type == 'Stored Credentials':
             import os
-            import sys
             import httplib2
-            from oauth2client.file import Storage
+            from oauth2client.contrib import multistore_file
             from oauth2client.tools import run_flow, argparser
 
             try:
@@ -33,46 +38,24 @@ class GcsUtility:
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
-            print 'Application Default Credentials unavailable.'
-            print 'To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
-
-            to_continue = None
-
-            while to_continue not in ('y', 'n'):
-                to_continue = raw_input('Alternatively, authenticate through Client Secret? [y/n]: ').lower()
-
-            if to_continue == 'n':
-                sys.exit(0)
-
-            print 'Input client secret path. For more detailed instructions, press enter.'
-            CLIENT_SECRET = raw_input('Client Secret Path: ').strip()
-
-            if CLIENT_SECRET is None or not os.path.exists(CLIENT_SECRET):
-                print 'Instructions for generating Client Secret file:'
-                print '1. Go to https://console.developers.google.com/'
-                print '2. Under the Projects dropdown menu, click create a project. This will be a project specific to your login account'
-                print '3. Once the new project is created, select that project, and navigate to API Manager'
-                print '4. Under the API Manager submenu, click on Credentials and click Create credentials. Select OAuth client ID, with the Application type as Other.'
-                print '5. After it has been successfully created, you will have the option of downloading it as json.'
-                sys.exit(0)
-
-            print 'Input credentials filepath. If file does not currently exist, one will be created for you.\n'
-            CREDS_FILE = raw_input('Credentials Path: ').strip()
-
-            storage = Storage(CREDS_FILE)
+            assert user_name is not None and credential_file_path is not None and os.path.exists(credential_file_path)
+            storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
             credentials = storage.get()
 
-            FLOW = flow_from_clientsecrets(CLIENT_SECRET, scope=OAUTH_SCOPE)
-
             if credentials is None or credentials.invalid:
-                # Run through the OAuth flow and retrieve credentials
+                if client_secret_path is None or not os.path.exists(client_secret_path):
+                    raise UnknownClientSecretsFlowError('Credentials unavailable. Please provide a valid client_secret_path to rerun authentication')
+
+                FLOW = flow_from_clientsecrets(client_secret_path, scope=OAUTH_SCOPE)
                 credentials = run_flow(FLOW, storage, flags)
 
-            # Create an httplib2.Http object and authorize it with our credentials
+            # Create an httplib2.Http object and authorize it with your credentials
             http = httplib2.Http()
             http = credentials.authorize(http)
 
             service = build('storage', 'v1', http=http)
+        else:
+            raise TypeError('Authentication types available are "Default Credentials" and "Stored Credentials"')
 
         self._service = service
         self._buckets = self._service.buckets()
