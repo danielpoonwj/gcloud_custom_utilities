@@ -1,0 +1,333 @@
+import os
+from datetime import datetime
+import httplib2
+from oauth2client.tools import run_flow, argparser
+from oauth2client.client import flow_from_clientsecrets, UnknownClientSecretsFlowError
+from oauth2client.contrib import multistore_file
+from googleapiclient.discovery import build
+
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+import mimetypes
+
+from pytz import timezone
+import base64
+import shutil
+
+
+def generate_email_search_query(
+        has_attachment=True,
+        mailbox_label=None,
+        subject=None,
+        sent_from=None,
+        file_name=None,
+        start_date=None,
+        end_date=None):
+
+    if has_attachment:
+        search_filter = 'has:attachment'
+    else:
+        search_filter = ''
+
+    if mailbox_label is not None:
+        if isinstance(sent_from, list):
+            search_filter += ' OR'.join([' label:%s' % x for x in mailbox_label])
+        else:
+            search_filter += ' label:%s' % mailbox_label
+
+    if subject is not None:
+        if isinstance(subject, list):
+            search_filter += ' OR'.join([' subject:%s' % x for x in subject])
+        else:
+            search_filter += ' subject:%s' % subject
+
+    if sent_from is not None:
+        if isinstance(sent_from, list):
+            search_filter += ' OR'.join([' from:%s' % x for x in sent_from])
+        else:
+            search_filter += ' from:%s' % sent_from
+
+    if file_name is not None:
+        if isinstance(file_name, list):
+            search_filter += ' OR'.join([' filename:%s' % x for x in file_name])
+        else:
+            search_filter += ' filename:%s' % file_name
+
+    if start_date is not None:
+        try:
+            date_after = start_date.strftime('%Y/%m/%d')
+        except AttributeError:
+            date_after = datetime.strptime(start_date, '%Y-%m-%d').strftime('%Y/%m/%d')
+        search_filter += ' after:%s' % date_after
+
+    if end_date is not None:
+        try:
+            date_before = end_date.strftime('%Y/%m/%d')
+        except AttributeError:
+            date_before = datetime.strptime(end_date, '%Y-%m-%d').strftime('%Y/%m/%d')
+        search_filter += ' before:%s' % date_before
+
+    return search_filter
+
+
+class GmailUtility:
+    def __init__(self, user_name, credential_file_path, client_secret_path=None):
+        try:
+            import argparse
+            flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
+        except ImportError:
+            flags = None
+
+        OAUTH_SCOPE = 'https://mail.google.com/'
+
+        storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
+        credentials = storage.get()
+
+        if credentials is None or credentials.invalid:
+            if client_secret_path is None or not os.path.exists(client_secret_path):
+                raise UnknownClientSecretsFlowError('Credentials unavailable. Please provide a valid client_secret_path to rerun authentication')
+
+            # Run through the OAuth flow and retrieve credentials
+            FLOW = flow_from_clientsecrets(client_secret_path, scope=OAUTH_SCOPE)
+            credentials = run_flow(FLOW, storage, flags)
+
+        # Create an httplib2.Http object and authorize it with our credentials
+        http = httplib2.Http()
+        http = credentials.authorize(http)
+
+        service = build('gmail', 'v1', http=http)
+
+        self._service = service
+        self._user = self._service.users()
+        self._messages = self._user.messages()
+        self._drafts = self._user.drafts()
+
+    def get_user_profile(self):
+        return self._user.getProfile(userId='me').execute()
+
+    def list_messages(self, include_all=False, query=None, max_results=None, show_full_messages=True):
+        message_list = []
+        message_count = 0
+
+        response = self._messages.list(
+            userId='me',
+            includeSpamTrash=include_all,
+            q=query
+        ).execute()
+
+        message_list += response['messages']
+        message_count += len(response['messages'])
+
+        if message_count > max_results:
+            message_list = message_list[:max_results]
+        else:
+            while 'nextPageToken' in response:
+                page_token = None
+                if 'nextPageToken' in response:
+                    page_token = response['nextPageToken']
+
+                response = self._messages.list(
+                    pageToken=page_token
+                ).execute()
+
+                if 'messages' in response:
+                    message_list += response['messages']
+                    message_count += len(response['messages'])
+
+                if message_count > max_results:
+                    message_list = message_list[:max_results]
+                    break
+
+        if show_full_messages:
+            message_list = [self._get_message(x['id'], format='full') for x in message_list]
+
+        return message_list
+
+    def list_drafts(self, include_all=False, max_results=None, show_full_messages=True):
+        draft_list = []
+        draft_count = 0
+
+        response = self._drafts.list(
+            userId='me',
+            includeSpamTrash=include_all
+        ).execute()
+
+        draft_list += response['drafts']
+        draft_count += len(response['drafts'])
+
+        if draft_count > max_results:
+            draft_list = draft_list[:max_results]
+        else:
+            while 'nextPageToken' in response:
+                page_token = None
+                if 'nextPageToken' in response:
+                    page_token = response['nextPageToken']
+
+                response = self._drafts.list(
+                    pageToken=page_token
+                ).execute()
+
+                if 'drafts' in response:
+                    draft_list += response['drafts']
+                    draft_count += len(response['drafts'])
+
+                if draft_count > max_results:
+                    draft_list = draft_list[:max_results]
+                    break
+
+        if show_full_messages:
+            draft_list = [self._get_draft(x['id'], format='full') for x in draft_list]
+
+        return draft_list
+
+    def _get_message(self, id, format='full'):
+        return self._messages.get(id=id, userId='me', format=format).execute()
+
+    def _get_attachment(self, attachment_id, message_id):
+        return self._messages.attachments().get(id=attachment_id, messageId=message_id, userId='me').execute()
+
+    def _get_draft(self, id, format='full'):
+        return self._drafts.get(id=id, userId='me', format=format).execute()
+
+    def download_email_attachments(
+            self,
+            write_dir,
+            clear_write_dir=False,
+            output_heirarchy=None,
+            search_query=None):
+
+        # make directory if not exists
+        if not os.path.exists(write_dir):
+            os.makedirs(write_dir)
+
+        # recursively clears write_dir of files and folders if option selected
+        # will automatically be disabled if write_dir is root folder
+        if clear_write_dir and write_dir != os.path.dirname(os.path.realpath(__file__)):
+            for subfolder in next(os.walk(write_dir))[1]:
+                if not subfolder.startswith('.'):
+                    shutil.rmtree(os.path.join(write_dir, subfolder))
+
+            for file in os.listdir(write_dir):
+                if not file.startswith('.'):
+                    os.remove(os.path.join(write_dir, file))
+
+        if output_heirarchy is not None:
+            if isinstance(output_heirarchy, str):
+                output_heirarchy = [output_heirarchy.lower()]
+            elif isinstance(output_heirarchy, list):
+                output_heirarchy = [x.lower() for x in output_heirarchy]
+            else:
+                output_heirarchy = None
+
+        mail_list = self.list_messages(query=search_query)
+
+        for mail in mail_list:
+            mail_id = mail['id']
+            mail_meta = {x['name'].lower(): x['value'] for x in mail['payload']['headers']}
+            mail_meta['date'] = datetime.fromtimestamp(float(mail['internalDate'])/1000, timezone('Asia/Singapore')).replace(tzinfo=None)
+
+            try:
+                for part in mail['payload']['parts']:
+                    if part['filename']:
+                        file_name = part['filename']
+                        attachment = self._get_attachment(part['body']['attachmentId'], mail_id)
+                        mail_meta['extension'] = os.path.splitext(file_name)[1].replace('.', '')
+
+                        if output_heirarchy is None:
+                            sub_write_dir = write_dir
+                        else:
+                            sub_write_dir = os.path.join(write_dir, *[mail_meta[x].strftime('%Y%m%d') if x == 'date' else mail_meta[x] for x in output_heirarchy])
+
+                        if not os.path.exists(sub_write_dir):
+                            os.makedirs(sub_write_dir)
+
+                        write_path = os.path.join(sub_write_dir, file_name)
+
+                        # check if file already exists, if it does, append counter and write
+                        counter = 1
+                        while os.path.exists(write_path):
+                            file_original_name = os.path.splitext(file_name)[0]
+                            file_original_ext = os.path.splitext(file_name)[1]
+                            write_path = os.path.join(sub_write_dir, '%s-%d%s' % (file_original_name, counter, file_original_ext))
+                            counter += 1
+
+                        file_data = base64.urlsafe_b64decode(attachment['data'].encode('UTF-8'))
+
+                        with open(write_path, 'wb') as write_file:
+                            write_file.write(file_data)
+
+                        print 'Downloaded %s from [%s]: %s (%s)' % (
+                            file_name,
+                            mail_meta['from'],
+                            mail_meta['subject'],
+                            mail_meta['date']
+                        )
+            except KeyError:
+                continue
+
+    def _create_message(self, sender, to, subject, message_text, attachment_file_paths):
+        # different treatment if contains attachments
+        if attachment_file_paths is None:
+            message = MIMEText(message_text)
+            message['to'] = to
+            message['from'] = sender
+            message['subject'] = subject
+
+            return {'raw': base64.urlsafe_b64encode(message.as_string())}
+
+        else:
+            message = MIMEMultipart()
+            message['to'] = to
+            message['from'] = sender
+            message['subject'] = subject
+
+            msg = MIMEText(message_text)
+            message.attach(msg)
+
+            if isinstance(attachment_file_paths, str):
+                attachment_file_paths = [attachment_file_paths]
+            elif not isinstance(attachment_file_paths, list):
+                raise TypeError('Invalid input for attachment_file_paths. Only acceptable types are str and list objects')
+
+            for file_path in attachment_file_paths:
+
+                assert os.path.exists(file_path)
+
+                content_type, encoding = mimetypes.guess_type(file_path)
+
+                if content_type is None or encoding is not None:
+                    content_type = 'application/octet-stream'
+
+                main_type, sub_type = content_type.split('/', 1)
+
+                if main_type == 'text':
+                    with open(file_path, 'rb') as fp:
+                        msg = MIMEText(fp.read(), _subtype=sub_type)
+
+                elif main_type == 'image':
+                    with open(file_path, 'rb') as fp:
+                        msg = MIMEImage(fp.read(), _subtype=sub_type)
+
+                else:
+                    with open(file_path, 'rb') as fp:
+                        msg = MIMEBase(main_type, sub_type)
+                        msg.set_payload(fp.read())
+
+                msg.add_header('Content-Disposition', 'attachment', filename=os.path.basename(file_path))
+                message.attach(msg)
+
+            return {'raw': base64.urlsafe_b64encode(message.as_string())}
+
+    def create_draft(self, sender, to, subject, message_text, attachment_file_paths=None):
+        message = {'message': self._create_message(sender, to, subject, message_text, attachment_file_paths)}
+        response = self._drafts.create(userId='me', body=message).execute()
+
+        return response
+
+    def send_email(self, sender, to, subject, message_text, attachment_file_paths=None):
+        message = self._create_message(sender, to, subject, message_text, attachment_file_paths)
+        response = self._messages.send(userId='me', body=message).execute()
+
+        return response
