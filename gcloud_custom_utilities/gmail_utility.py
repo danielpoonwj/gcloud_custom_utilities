@@ -73,7 +73,7 @@ def generate_email_search_query(
 
 
 class GmailUtility:
-    def __init__(self, user_name, credential_file_path, client_secret_path=None):
+    def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None):
         try:
             import argparse
             flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
@@ -104,6 +104,8 @@ class GmailUtility:
         self._messages = self._user.messages()
         self._drafts = self._user.drafts()
 
+        self._logger = logger
+
     def get_user_profile(self):
         return self._user.getProfile(userId='me').execute()
 
@@ -129,6 +131,9 @@ class GmailUtility:
                     page_token = response['nextPageToken']
 
                 response = self._messages.list(
+                    userId='me',
+                    includeSpamTrash=include_all,
+                    q=query,
                     pageToken=page_token
                 ).execute()
 
@@ -166,6 +171,8 @@ class GmailUtility:
                     page_token = response['nextPageToken']
 
                 response = self._drafts.list(
+                    userId='me',
+                    includeSpamTrash=include_all,
                     pageToken=page_token
                 ).execute()
 
@@ -196,7 +203,8 @@ class GmailUtility:
             write_dir,
             clear_write_dir=False,
             output_heirarchy=None,
-            search_query=None):
+            search_query=None,
+            print_details=True):
 
         # make directory if not exists
         if not os.path.exists(write_dir):
@@ -221,15 +229,20 @@ class GmailUtility:
             else:
                 output_heirarchy = None
 
-        mail_list = self.list_messages(query=search_query)
+        mail_list = self.list_messages(query=search_query, max_results=100000)
 
         for mail in mail_list:
             mail_id = mail['id']
             mail_meta = {x['name'].lower(): x['value'] for x in mail['payload']['headers']}
             mail_meta['date'] = datetime.fromtimestamp(float(mail['internalDate'])/1000, timezone('Asia/Singapore')).replace(tzinfo=None)
 
-            try:
-                for part in mail['payload']['parts']:
+            if 'parts' in mail['payload']:
+                parts = mail['payload']['parts']
+            else:
+                parts = [mail['payload']]
+
+            for part in parts:
+                try:
                     if part['filename']:
                         file_name = part['filename']
                         attachment = self._get_attachment(part['body']['attachmentId'], mail_id)
@@ -258,14 +271,20 @@ class GmailUtility:
                         with open(write_path, 'wb') as write_file:
                             write_file.write(file_data)
 
-                        print 'Downloaded %s from [%s]: %s (%s)' % (
-                            file_name,
-                            mail_meta['from'],
-                            mail_meta['subject'],
-                            mail_meta['date']
-                        )
-            except KeyError:
-                continue
+                        logging_string = '[Gmail] Downloaded %s from [%s]: %s (%s)' % (
+                                file_name,
+                                mail_meta['from'],
+                                mail_meta['subject'],
+                                mail_meta['date']
+                            )
+
+                        if print_details:
+                            print '\t%s' % logging_string
+
+                        if self._logger is not None:
+                            self._logger.info(logging_string)
+                except KeyError:
+                    continue
 
     def _create_message(self, sender, to, subject, message_text, attachment_file_paths):
         # different treatment if contains attachments
