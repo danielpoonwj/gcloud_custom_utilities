@@ -621,6 +621,9 @@ class BigqueryUtility:
         write_dataset_id = write_data['datasetId']
         write_table_id = write_data['tableId']
 
+        flattenResults = 'true' if 'flattenResults' not in write_data else write_data['flattenResults']
+        maximumBillingTier = None if 'maximumBillingTier' not in write_data else write_data['maximumBillingTier']
+
         request_body = {
             'jobReference': {
                 'projectId': project_id,
@@ -640,7 +643,9 @@ class BigqueryUtility:
                         'datasetId': write_dataset_id,
                         'tableId': write_table_id,
                     },
-                    'writeDisposition': writeDisposition
+                    'writeDisposition': writeDisposition,
+                    'flattenResults': flattenResults,
+                    'maximumBillingTier': maximumBillingTier
                 }
             }
         }
@@ -663,7 +668,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details, sleep_time)
+            return self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
 
@@ -775,7 +780,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details, sleep_time)
+            return self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
 
@@ -816,7 +821,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details, sleep_time)
+            return self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
 
@@ -870,6 +875,6 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details, sleep_time)
+            return self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
