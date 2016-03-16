@@ -356,7 +356,7 @@ class BigqueryUtility:
         if self._logger is not None:
             self._logger.info(logging_string)
 
-    def query(self, project_id, query, async=False, async_data=None, udfInlineCode=None, return_type='list', print_details=True):
+    def query(self, project_id, query, async=False, async_data=None, udfInlineCode=None, return_type='list', print_details=True, sleep_time=1):
         """Submit a query to bigquery. Users can choose whether to submit an
         asynchronous or synchronous query (default)."""
         if async:
@@ -365,7 +365,7 @@ class BigqueryUtility:
             write_dataset_id = async_data['datasetId']
             write_table_id = async_data['tableId']
 
-            return self._async_query(project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details)
+            return self._async_query(project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details, sleep_time)
         else:
             if udfInlineCode is not None:
                 print 'WARNING: UDF is not enabled for sync queries, please use async if UDF is required'
@@ -373,9 +373,9 @@ class BigqueryUtility:
                 if self._logger is not None:
                     self._logger.warn('UDF is not enabled for sync queries, please use async if UDF is required')
 
-            return self._sync_query(project_id, query, return_type, print_details)
+            return self._sync_query(project_id, query, return_type, print_details, sleep_time)
 
-    def _sync_query(self, project_id, query, return_type, print_details):
+    def _sync_query(self, project_id, query, return_type, print_details, sleep_time):
         request_body = {
             'query': query,
             'timeoutMs': 0
@@ -386,9 +386,9 @@ class BigqueryUtility:
             body=request_body
         ).execute()
 
-        return self._iterate_job_results(response, return_type, print_details)
+        return self._iterate_job_results(response, return_type, print_details, sleep_time)
 
-    def _async_query(self, project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details):
+    def _async_query(self, project_id, query, write_project_id, write_dataset_id, write_table_id, udfInlineCode, return_type, print_details, sleep_time):
         request_body = {
             'jobReference': {
                 'projectId': project_id,
@@ -418,10 +418,10 @@ class BigqueryUtility:
             body=request_body
         ).execute()
 
-        return self._iterate_job_results(response, return_type, print_details)
+        return self._iterate_job_results(response, return_type, print_details, sleep_time)
 
-    def _iterate_job_results(self, response, return_type, print_details):
-        response = self.poll_job_status(response, print_details)
+    def _iterate_job_results(self, response, return_type, print_details, sleep_time):
+        response = self.poll_job_status(response, print_details, sleep_time)
 
         returnList = []
 
@@ -613,7 +613,8 @@ class BigqueryUtility:
                     writeDisposition='WRITE_TRUNCATE',
                     udfInlineCode=None,
                     print_details=True,
-                    wait_finish=True):
+                    wait_finish=True,
+                    sleep_time=1):
 
         # projectId, datasetId and tableId must be filled when writing to table
         write_project_id = write_data['projectId']
@@ -662,7 +663,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details)
+            self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
 
@@ -731,7 +732,8 @@ class BigqueryUtility:
                       skipHeader=True,
                       writeDisposition='WRITE_TRUNCATE',
                       print_details=True,
-                      wait_finish=True):
+                      wait_finish=True,
+                      sleep_time=1):
 
         assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
 
@@ -773,7 +775,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details)
+            self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
 
@@ -785,7 +787,8 @@ class BigqueryUtility:
                       compression='NONE',
                       destinationFormat='CSV',
                       print_details=True,
-                      wait_finish=True):
+                      wait_finish=True,
+                      sleep_time=1):
 
         request_body = {
             'jobReference': {
@@ -813,7 +816,7 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details)
+            self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
 
@@ -824,7 +827,8 @@ class BigqueryUtility:
                         skipHeader=True,
                         writeDisposition='WRITE_TRUNCATE',
                         print_details=True,
-                        wait_finish=True):
+                        wait_finish=True,
+                        sleep_time=1):
 
         assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
 
@@ -866,6 +870,6 @@ class BigqueryUtility:
         ).execute()
 
         if wait_finish:
-            self.poll_job_status(response, print_details)
+            self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
