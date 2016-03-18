@@ -61,8 +61,7 @@ def send_mail(
             port=587,
             isTls=True):
 
-    assert username is not None
-    assert password is not None
+    assert username is not None and password is not None
 
     if send_from is None:
         send_from = username
