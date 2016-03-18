@@ -61,14 +61,6 @@ def send_mail(
             port=587,
             isTls=True):
 
-    if username is None or password is None:
-        DEFAULT_CREDENTIAL_PATH = os.path.join(os.path.expanduser('~'), 'misc_credentials.json')
-
-        if os.path.exists(DEFAULT_CREDENTIAL_PATH):
-            DEFAULT_CREDENTIALS = json.loads(open(DEFAULT_CREDENTIAL_PATH, 'r').read())
-            username = DEFAULT_CREDENTIALS['mail']['username']
-            password = DEFAULT_CREDENTIALS['mail']['password']
-
     assert username is not None
     assert password is not None
 
