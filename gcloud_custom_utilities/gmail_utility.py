@@ -201,6 +201,7 @@ class GmailUtility:
     def download_email_attachments(
             self,
             write_dir,
+            attachment_filter=None,
             clear_write_dir=False,
             output_heirarchy=None,
             search_query=None,
@@ -229,6 +230,27 @@ class GmailUtility:
             else:
                 output_heirarchy = None
 
+        if attachment_filter is not None:
+            if not isinstance(attachment_filter, list):
+                attachment_filter = [attachment_filter]
+
+        def _list_attachments(obj, key, parts_list):
+            if isinstance(obj, dict):
+                try:
+                    parts_list.append({'filename': obj['filename'], 'attachmentId': obj['body']['attachmentId']})
+                except KeyError:
+                    pass
+
+            if key in obj and isinstance(obj[key], list):
+                for part in obj[key]:
+                    try:
+                        parts_list.append({'filename': part['filename'], 'attachmentId': part['body']['attachmentId']})
+                    except KeyError:
+                        pass
+
+                    if key in part:
+                        _list_attachments(part, key, parts_list)
+
         mail_list = self.list_messages(query=search_query, max_results=100000)
 
         for mail in mail_list:
@@ -236,55 +258,54 @@ class GmailUtility:
             mail_meta = {x['name'].lower(): x['value'] for x in mail['payload']['headers']}
             mail_meta['date'] = datetime.fromtimestamp(float(mail['internalDate'])/1000, timezone('Asia/Singapore')).replace(tzinfo=None)
 
-            if 'parts' in mail['payload']:
-                parts = mail['payload']['parts']
-            else:
-                parts = [mail['payload']]
+            attachment_list = []
+            _list_attachments(mail['payload'], 'parts', attachment_list)
 
-            for part in parts:
-                try:
-                    if part['filename']:
-                        file_name = part['filename']
-                        attachment = self._get_attachment(part['body']['attachmentId'], mail_id)
-                        mail_meta['extension'] = os.path.splitext(file_name)[1].replace('.', '')
+            for attachment_dict in attachment_list:
+                file_name = attachment_dict['filename']
 
-                        if output_heirarchy is None:
-                            sub_write_dir = write_dir
-                        else:
-                            sub_write_dir = os.path.join(write_dir, *[mail_meta[x].strftime('%Y%m%d') if x == 'date' else mail_meta[x] for x in output_heirarchy])
-
-                        if not os.path.exists(sub_write_dir):
-                            os.makedirs(sub_write_dir)
-
-                        write_path = os.path.join(sub_write_dir, file_name)
-
-                        # check if file already exists, if it does, append counter and write
-                        counter = 1
-                        while os.path.exists(write_path):
-                            file_original_name = os.path.splitext(file_name)[0]
-                            file_original_ext = os.path.splitext(file_name)[1]
-                            write_path = os.path.join(sub_write_dir, '%s-%d%s' % (file_original_name, counter, file_original_ext))
-                            counter += 1
-
-                        file_data = base64.urlsafe_b64decode(attachment['data'].encode('UTF-8'))
-
-                        with open(write_path, 'wb') as write_file:
-                            write_file.write(file_data)
-
-                        logging_string = '[Gmail] Downloaded %s from [%s]: %s (%s)' % (
-                                file_name,
-                                mail_meta['from'],
-                                mail_meta['subject'],
-                                mail_meta['date']
-                            )
-
-                        if print_details:
-                            print '\t%s' % logging_string
-
-                        if self._logger is not None:
-                            self._logger.info(logging_string)
-                except KeyError:
+                if attachment_filter is not None and not any([x in file_name for x in attachment_filter]):
                     continue
+
+                mail_meta['extension'] = os.path.splitext(file_name)[-1].replace('.', '')
+
+                attachment = self._get_attachment(attachment_dict['attachmentId'], mail_id)
+
+                if output_heirarchy is None:
+                    sub_write_dir = write_dir
+                else:
+                    sub_write_dir = os.path.join(write_dir, *[mail_meta[x].strftime('%Y%m%d') if x == 'date' else mail_meta[x] for x in output_heirarchy])
+
+                if not os.path.exists(sub_write_dir):
+                    os.makedirs(sub_write_dir)
+
+                write_path = os.path.join(sub_write_dir, file_name)
+
+                # check if file already exists, if it does, append counter and write
+                counter = 1
+                while os.path.exists(write_path):
+                    file_original_name = os.path.splitext(file_name)[0]
+                    file_original_ext = os.path.splitext(file_name)[1]
+                    write_path = os.path.join(sub_write_dir, '%s-%d%s' % (file_original_name, counter, file_original_ext))
+                    counter += 1
+
+                file_data = base64.urlsafe_b64decode(attachment['data'].encode('UTF-8'))
+
+                with open(write_path, 'wb') as write_file:
+                    write_file.write(file_data)
+
+                logging_string = '[Gmail] Downloaded %s from [%s]: %s (%s)' % (
+                        file_name,
+                        mail_meta['from'],
+                        mail_meta['subject'],
+                        mail_meta['date']
+                    )
+
+                if print_details:
+                    print '\t%s' % logging_string
+
+                if self._logger is not None:
+                    self._logger.info(logging_string)
 
     def _create_message(self, sender, to, subject, message_text, attachment_file_paths):
         # different treatment if contains attachments
