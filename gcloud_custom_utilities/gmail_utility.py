@@ -119,8 +119,11 @@ class GmailUtility:
             q=query
         ).execute()
 
-        message_list += response['messages']
-        message_count += len(response['messages'])
+        if 'messages' in response:
+            message_list += response['messages']
+            message_count += len(response['messages'])
+        else:
+            return message_list
 
         if message_count > max_results:
             message_list = message_list[:max_results]
@@ -159,8 +162,11 @@ class GmailUtility:
             includeSpamTrash=include_all
         ).execute()
 
-        draft_list += response['drafts']
-        draft_count += len(response['drafts'])
+        if 'drafts' in response:
+            draft_list += response['drafts']
+            draft_count += len(response['drafts'])
+        else:
+            return draft_list
 
         if draft_count > max_results:
             draft_list = draft_list[:max_results]

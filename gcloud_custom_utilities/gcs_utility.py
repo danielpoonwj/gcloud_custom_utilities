@@ -77,15 +77,24 @@ class GcsUtility:
 
     def list_buckets(self, project_name, max_results=None):
         buckets_list = []
+        buckets_count = 0
 
         response = self._buckets.list(
             project=project_name,
             maxResults=max_results
         ).execute()
 
-        buckets_list += response['items']
+        if 'items' in response:
+            buckets_list += response['items']
+            buckets_count += len(response['items'])
+        else:
+            return buckets_list
 
-        while 'nextPageToken' in response and max_results is None:
+        if buckets_count > max_results:
+            buckets_list = buckets_list[:max_results]
+            return buckets_list
+
+        while 'nextPageToken' in response:
             page_token = None
             if 'nextPageToken' in response:
                 page_token = response['nextPageToken']
@@ -97,11 +106,17 @@ class GcsUtility:
 
             if 'items' in response:
                 buckets_list += response['items']
+                buckets_count += len(response['items'])
+
+            if buckets_count > max_results:
+                buckets_list = buckets_list[:max_results]
+                break
 
         return buckets_list
 
     def list_objects(self, bucket_name, search_prefix=None, max_results=None):
         objects_list = []
+        objects_count = 0
 
         response = self._objects.list(
             bucket=bucket_name,
@@ -111,21 +126,33 @@ class GcsUtility:
 
         if 'items' in response:
             objects_list += response['items']
+            objects_count += len(response['items'])
+        else:
+            return objects_list
 
-            while 'nextPageToken' in response and max_results is None:
-                page_token = None
-                if 'nextPageToken' in response:
-                    page_token = response['nextPageToken']
+        if objects_count > max_results:
+            objects_list = objects_list[:max_results]
+            return objects_list
 
-                response = self._objects.list(
-                    bucket=bucket_name,
-                    prefix=search_prefix,
-                    pageToken=page_token
-                ).execute()
+        while 'nextPageToken' in response:
+            page_token = None
+            if 'nextPageToken' in response:
+                page_token = response['nextPageToken']
 
-                if 'items' in response:
-                    objects_list += response['items']
-        
+            response = self._objects.list(
+                bucket=bucket_name,
+                prefix=search_prefix,
+                pageToken=page_token
+            ).execute()
+
+            if 'items' in response:
+                objects_list += response['items']
+                objects_count += len(response['items'])
+
+            if objects_count > max_results:
+                objects_list = objects_list[:max_results]
+                break
+
         return objects_list
 
     def _parse_object_name(self, object_name, subfolders=None):

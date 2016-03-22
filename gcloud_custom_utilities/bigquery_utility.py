@@ -149,8 +149,11 @@ class BigqueryUtility:
 
         response = self._projects.list().execute()
 
-        project_list += response['projects']
-        project_count += len(response['projects'])
+        if 'projects' in response:
+            project_list += response['projects']
+            project_count += len(response['projects'])
+        else:
+            return project_list
 
         if project_count > max_results:
             project_list = project_list[:max_results]
@@ -226,8 +229,11 @@ class BigqueryUtility:
             all=show_all
         ).execute()
 
-        dataset_list += response['datasets']
-        dataset_count += len(response['datasets'])
+        if 'datasets' in response:
+            dataset_list += response['datasets']
+            dataset_count += len(response['datasets'])
+        else:
+            return dataset_list
 
         if dataset_count > max_results:
             dataset_list = dataset_list[:max_results]
@@ -263,8 +269,11 @@ class BigqueryUtility:
             datasetId=dataset_id
         ).execute()
 
-        table_list += response['tables']
-        table_count += len(response['tables'])
+        if 'tables' in response:
+            table_list += response['tables']
+            table_count += len(response['tables'])
+        else:
+            return table_list
 
         if table_count > max_results:
             table_list = table_list[:max_results]
