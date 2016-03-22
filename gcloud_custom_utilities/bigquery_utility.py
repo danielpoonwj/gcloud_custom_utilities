@@ -70,6 +70,26 @@ def convert_file_to_string(f, source_format='csv'):
     return return_string
 
 
+def get_schema_from_dataframe(input_df):
+    dtype_df = input_df.dtypes.reset_index(drop=False)
+    dtype_df = dtype_df.rename(columns={'index': 'name', 0: 'type'})
+
+    dtype_conversion_dict = {
+        'b': 'BOOLEAN',
+        'i': 'INTEGER',
+        'u': 'INTEGER',
+        'f': 'FLOAT',
+        'c': 'FLOAT',
+        'O': 'STRING',
+        'S': 'STRING',
+        'U': 'STRING',
+        'M': 'TIMESTAMP'
+    }
+
+    dtype_df['type'] = dtype_df['type'].map(lambda x: dtype_conversion_dict[x.kind])
+    return dtype_df.to_dict('records')
+
+
 class BigqueryUtility:
     def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None):
 
