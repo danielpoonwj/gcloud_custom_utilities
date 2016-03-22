@@ -253,6 +253,8 @@ class GcsUtility:
         if self._logger is not None:
             self._logger.info(logging_string)
 
+        return response
+
     def delete_object(self, bucket_name, object_name, subfolders=None, print_details=True):
         response = None
         while response is None:
@@ -271,3 +273,5 @@ class GcsUtility:
 
         if self._logger is not None:
             self._logger.info(logging_string)
+
+        return response
