@@ -115,7 +115,7 @@ class BigqueryUtility:
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/bigquery'
 
-            assert user_name is not None and credential_file_path is not None and os.path.exists(credential_file_path)
+            assert user_name is not None and credential_file_path is not None
             storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
             credentials = storage.get()
 
@@ -616,6 +616,40 @@ class BigqueryUtility:
                     time_taken
                 )
 
+        elif 'copy' in response['configuration']:
+
+            destination_table = '%s:%s:%s' % (
+                response['configuration']['copy']['destinationTable']['projectId'],
+                response['configuration']['copy']['destinationTable']['datasetId'],
+                response['configuration']['copy']['destinationTable']['tableId']
+            )
+
+            if 'sourceTable' in response['configuration']['copy']:
+                source_table = '%s:%s:%s' % (
+                    response['configuration']['copy']['sourceTable']['projectId'],
+                    response['configuration']['copy']['sourceTable']['datasetId'],
+                    response['configuration']['copy']['sourceTable']['tableId']
+                )
+            else:
+                source_table = '[%s]' % ', '.join([
+                    '%s:%s:%s' % (
+                        source_table_resp['projectId'],
+                        source_table_resp['datasetId'],
+                        source_table_resp['tableId']
+                    ) for source_table_resp in response['configuration']['copy']['sourceTables']
+                ])
+
+            write_disposition = response['configuration']['copy']['writeDisposition']
+
+            logging_string = '[BigQuery] Copy Job (%s:%s) %s %s to %s (%s)' % (
+                    project_id,
+                    job_id,
+                    'appended' if write_disposition == 'WRITE_APPEND' else 'written',
+                    source_table,
+                    destination_table,
+                    time_taken
+                )
+
         else:
             logging_string = ''
 
@@ -778,6 +812,8 @@ class BigqueryUtility:
         schema_fields = write_data['schemaFields']
         source_uri = write_data['sourceUri']
 
+        quoted_newlines = 'false' if 'allowQuotedNewlines' not in write_data else write_data['allowQuotedNewlines']
+
         request_body = {
             'jobReference': {
                 'projectId': write_project_id,
@@ -798,7 +834,8 @@ class BigqueryUtility:
                     'schema': {
                         'fields': schema_fields
                     },
-                    'sourceUris': source_uri if isinstance(source_uri, list) else [source_uri]
+                    'sourceUris': source_uri if isinstance(source_uri, list) else [source_uri],
+                    'allowQuotedNewlines': quoted_newlines
                 }
             }
         }
@@ -872,6 +909,8 @@ class BigqueryUtility:
         write_table_id = write_data['tableId']
         schema_fields = write_data['schemaFields']
 
+        quoted_newlines = 'false' if 'allowQuotedNewlines' not in write_data else write_data['allowQuotedNewlines']
+
         request_body = {
             'jobReference': {
                 'projectId': write_project_id,
@@ -890,7 +929,8 @@ class BigqueryUtility:
                         'fields': schema_fields
                     },
                     'sourceFormat': source_format,
-                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else None
+                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else None,
+                    'allowQuotedNewlines': quoted_newlines
                 }
             }
         }
@@ -907,3 +947,126 @@ class BigqueryUtility:
             return self.poll_job_status(response, print_details, sleep_time)
         else:
             return response
+
+    def copy_table(self,
+                    write_data,
+                    copy_data,
+                    writeDisposition='WRITE_TRUNCATE',
+                    print_details=True,
+                    wait_finish=True,
+                    sleep_time=1):
+
+        # projectId, datasetId, tableId must be filled for write_data and copy_data
+        required_keys = ['projectId', 'datasetId', 'tableId']
+        assert len(write_data.keys()) == 3 and all([key in required_keys for key in write_data.keys()])
+
+        if isinstance(copy_data, list):
+            for element in copy_data:
+                assert isinstance(element, dict)
+                assert len(element.keys()) == 3 and all([key in required_keys for key in element.keys()])
+        else:
+            assert len(copy_data.keys()) == 3 and all([key in required_keys for key in copy_data.keys()])
+            copy_data = [copy_data]
+
+        request_body = {
+            'jobReference': {
+                'projectId': write_data['projectId'],
+                'job_id': str(uuid.uuid4())
+            },
+
+            'configuration': {
+                'copy': {
+                    'destinationTable': write_data,
+                    'sourceTables': copy_data,
+                    'writeDisposition': writeDisposition
+                }
+            }
+        }
+
+        response = self._jobs.insert(
+            projectId=write_data['projectId'],
+            body=request_body
+        ).execute()
+
+        if wait_finish:
+            return self.poll_job_status(response, print_details, sleep_time)
+        else:
+            return response
+
+    def write_federated_table(self,
+                    write_data,
+                    source_format='CSV',
+                    skipHeader=False,
+                    field_delimiter=',',
+                    compression=None,
+                    overwrite_existing=True,
+                    print_details=True):
+
+        assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
+
+        # projectId, datasetId, tableId, schemaFields and sourceUris must be filled when writing federated table
+        write_project_id = write_data['projectId']
+        write_dataset_id = write_data['datasetId']
+        write_table_id = write_data['tableId']
+        schema_fields = write_data['schemaFields']
+        source_uris = write_data['sourceUris']
+
+        quoted_newlines = 'false' if 'allowQuotedNewlines' not in write_data else write_data['allowQuotedNewlines']
+
+        if not isinstance(source_uris, list):
+            source_uris = [source_uris]
+
+        request_body = {
+            'tableReference': {
+                'projectId': write_project_id,
+                'datasetId': write_dataset_id,
+                'tableId': write_table_id
+            },
+            'externalDataConfiguration': {
+                'sourceUris': source_uris,
+                'schema': {
+                    'fields': schema_fields
+                },
+                'sourceFormat': source_format,
+                'compression': None if compression != 'GZIP' else compression,
+
+                'csvOptions': {
+                    'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else None,
+                    'fieldDelimiter': field_delimiter if source_format == 'CSV' else None,
+                    'allowQuotedNewlines': quoted_newlines
+                }
+            }
+        }
+
+        # error would be raised if table/view already exists, delete first before reinserting
+        try:
+            response = self._tables.insert(
+                projectId=write_project_id,
+                datasetId=write_dataset_id,
+                body=request_body
+            ).execute()
+        except HttpError as e:
+            if e.resp.status == 409 and overwrite_existing:
+                self.delete_table(write_project_id, write_dataset_id, write_table_id, print_details=print_details)
+                response = self._tables.insert(
+                    projectId=write_project_id,
+                    datasetId=write_dataset_id,
+                    body=request_body
+                ).execute()
+            else:
+                raise e
+
+        logging_string = '[BigQuery] Federated Table Inserted (%s:%s:%s) from %s' % (
+                write_project_id,
+                write_dataset_id,
+                write_table_id,
+                '[%s]' % ', '.join(source_uris)
+            )
+
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
+        return response
