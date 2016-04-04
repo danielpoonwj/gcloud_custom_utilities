@@ -38,7 +38,7 @@ class GcsUtility:
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
-            assert user_name is not None and credential_file_path is not None and os.path.exists(credential_file_path)
+            assert user_name is not None and credential_file_path is not None
             storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
             credentials = storage.get()
 
