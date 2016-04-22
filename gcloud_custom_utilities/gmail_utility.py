@@ -11,6 +11,9 @@ from email.mime.image import MIMEImage
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 import mimetypes
+from email.utils import COMMASPACE
+
+from tabulate import tabulate
 
 from pytz import timezone
 import base64
@@ -313,25 +316,75 @@ class GmailUtility:
                 if self._logger is not None:
                     self._logger.info(logging_string)
 
-    def _create_message(self, sender, to, subject, message_text, attachment_file_paths):
-        # different treatment if contains attachments
-        if attachment_file_paths is None:
-            message = MIMEText(message_text)
-            message['to'] = to
-            message['from'] = sender
-            message['subject'] = subject
-
-            return {'raw': base64.urlsafe_b64encode(message.as_string())}
-
+    def convert_list_to_html(self, data, has_header=True):
+        if has_header:
+            header = data.pop(0)
         else:
-            message = MIMEMultipart()
-            message['to'] = to
-            message['from'] = sender
-            message['subject'] = subject
+            header = ()
 
-            msg = MIMEText(message_text)
-            message.attach(msg)
+        table_html = tabulate(data, headers=header, tablefmt='html')
 
+        table_html = table_html.replace('<table>', '<table style="width: 100%; border-collapse: collapse; border: 2px solid black;">')
+        table_html = table_html.replace('<td>', '<td style="border: 1px solid black;">')
+        table_html = table_html.replace('<th>', '<th style="border: 2px solid black;">')
+
+        return table_html
+
+    def _create_message(self, sender, to, subject, message_text, attachment_file_paths):
+        def __generate_msg_part(part):
+            assert isinstance(part, dict)
+            assert 'text' in part
+            if 'type' not in part:
+                msg_type = 'plain'
+            else:
+                msg_type = part['type']
+
+            mime_part = MIMEText(part['text'].encode('utf-8'), _subtype=msg_type, _charset='utf-8')
+            return mime_part
+
+        if not isinstance(to, list):
+            to = [to]
+
+        if message_text is None or isinstance(message_text, (unicode, str)):
+            msgs = [MIMEText(message_text.encode('utf-8'), _charset='utf-8')]
+        elif isinstance(message_text, dict):
+            msgs = [__generate_msg_part(message_text)]
+        elif isinstance(message_text, list):
+            msgs = [__generate_msg_part(message_part) for message_part in message_text]
+        else:
+            raise TypeError('Types accepted for message_text: string, dict, or list of dicts')
+
+        message = MIMEMultipart()
+        message['to'] = COMMASPACE.join(to)
+        message['from'] = sender
+        message['subject'] = subject
+
+        # separate part for text etc
+        message_alt = MIMEMultipart('alternative')
+        message.attach(message_alt)
+
+        # html portions have to be under a separate 'related' part under 'alternative' part
+        # sequence matters, text > related (html > inline image) > attachments. ascending priority
+        # if message text is a list, it's providing alternatives.
+        # eg. if both plain and html are available, Gmail will choose HTML over plain
+
+        # attach text first (lower priority)
+        plain_msgs = [x for x in msgs if x.get_content_subtype() == 'plain']
+        for msg in plain_msgs:
+            message_alt.attach(msg)
+
+        # create 'related' part if html is required
+        content_msgs = [x for x in msgs if x.get_content_subtype() == 'html' or x.get_content_maintype() == 'image']
+
+        if len(content_msgs) > 0:
+            message_related = MIMEMultipart('related')
+            message_alt.attach(message_related)
+
+            for msg in content_msgs:
+                message_related.attach(msg)
+
+        # different treatment if contains attachments
+        if attachment_file_paths is not None:
             if isinstance(attachment_file_paths, str):
                 attachment_file_paths = [attachment_file_paths]
             elif not isinstance(attachment_file_paths, list):
@@ -364,7 +417,7 @@ class GmailUtility:
                 msg.add_header('Content-Disposition', 'attachment', filename=os.path.basename(file_path))
                 message.attach(msg)
 
-            return {'raw': base64.urlsafe_b64encode(message.as_string())}
+        return {'raw': base64.urlsafe_b64encode(message.as_string())}
 
     def create_draft(self, sender, to, subject, message_text, attachment_file_paths=None):
         message = {'message': self._create_message(sender, to, subject, message_text, attachment_file_paths)}
