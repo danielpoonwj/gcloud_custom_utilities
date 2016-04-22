@@ -14,6 +14,7 @@ setup(name='gcloud_custom_utilities',
         'oauth2client>=2.0.1',
         'googleads',
         'unicodecsv',
-        'pytz'
+        'pytz',
+        'tabulate'
       ],
       zip_safe=False)
