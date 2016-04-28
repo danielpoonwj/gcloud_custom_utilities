@@ -316,17 +316,27 @@ class GmailUtility:
                 if self._logger is not None:
                     self._logger.info(logging_string)
 
-    def convert_list_to_html(self, data, has_header=True):
+    def convert_list_to_html(self, data, has_header=True, table_format=None):
         if has_header:
             header = data.pop(0)
         else:
             header = ()
 
-        table_html = tabulate(data, headers=header, tablefmt='html')
+        table_html = tabulate(data, headers=header, tablefmt='html', numalign='left')
 
-        table_html = table_html.replace('<table>', '<table style="width: 100%; border-collapse: collapse; border: 2px solid black;">')
-        table_html = table_html.replace('<td>', '<td style="border: 1px solid black;">')
-        table_html = table_html.replace('<th>', '<th style="border: 2px solid black;">')
+        if table_format is not None:
+            if isinstance(table_format, str) and table_format.lower() == 'default':
+                table_format = {
+                    'table': "width: 100%; border-collapse: collapse; border: 2px solid black;",
+                    'th': "border: 2px solid black;",
+                    'td': "border: 1px solid black;"
+                }
+
+            if isinstance(table_format, dict):
+                assert all([key in ('table', 'th', 'tr', 'td') for key in table_format.keys()])
+
+                for k, v in table_format.iteritems():
+                    table_html = table_html.replace('<%s>' % k, '<%s style="%s">' % (k, v))
 
         return table_html
 
