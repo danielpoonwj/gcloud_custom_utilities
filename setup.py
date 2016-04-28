@@ -12,7 +12,7 @@ setup(name='gcloud_custom_utilities',
         'pandas',
         'google-api-python-client>=1.5',
         'oauth2client>=2.0.1',
-        'googleads',
+        'googleads>=3.15.0',
         'unicodecsv',
         'pytz',
         'tabulate'
