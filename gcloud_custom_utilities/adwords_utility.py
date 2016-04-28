@@ -1,10 +1,11 @@
 from googleads import adwords
 from datetime import datetime
 from ast import literal_eval
+from suds.sudsobject import asdict
 
 
 class AdwordsUtility:
-    def __init__(self, client_customer_id=None, service_version='v201601', credential_path=None):
+    def __init__(self, client_customer_id=None, service_version='v201603', credential_path=None):
         # Initialize client object.
         self._client = adwords.AdWordsClient.LoadFromStorage(credential_path)
 
@@ -27,6 +28,26 @@ class AdwordsUtility:
     def reset_to_mcc_id(self):
         self._client.SetClientCustomerId(self._MCC_ACCOUNT_ID)
 
+    def recursive_asdict(self, d):
+        """Convert Suds object into serializable format."""
+        out = {}
+        for k, v in asdict(d).iteritems():
+            k = k.replace('.', '')
+            k = k[0].lower() + k[1:]
+
+            if hasattr(v, '__keylist__'):
+                out[k] = self.recursive_asdict(v)
+            elif isinstance(v, list):
+                out[k] = []
+                for item in v:
+                    if hasattr(item, '__keylist__'):
+                        out[k].append(self.recursive_asdict(item))
+                    else:
+                        out[k].append(item)
+            else:
+                out[k] = v
+        return out
+
     def _parse_object(self, fields, input_object, output_type):
         assert output_type in ('object', 'dict', 'list')
 
@@ -40,7 +61,7 @@ class AdwordsUtility:
             return [input_object[field] for field in fields]
 
         if output_type == 'dict':
-            return {field: input_object[field] for field in fields}
+            return self.recursive_asdict(input_object)
 
     def _iterate_pages(self, service, selector, output_type):
         offset = int(selector['paging']['startIndex'])
@@ -275,6 +296,14 @@ class AdwordsUtility:
 
         adgroup_list = self._iterate_pages(service, selector, output_type)
         return adgroup_list
+
+    def get_generic_service(self, service_name, selector, iterate_pages=False, output_type='object'):
+        service = self._client.GetService(service_name, version=self._service_version)
+
+        if iterate_pages:
+            return self._iterate_pages(service, selector, output_type)
+        else:
+            return service.get(selector)
 
     def download_report(
             self,
