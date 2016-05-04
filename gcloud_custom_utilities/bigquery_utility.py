@@ -685,7 +685,6 @@ class BigqueryUtility:
         write_table_id = write_data['tableId']
 
         flattenResults = 'true' if 'flattenResults' not in write_data else write_data['flattenResults']
-        maximumBillingTier = None if 'maximumBillingTier' not in write_data else write_data['maximumBillingTier']
 
         request_body = {
             'jobReference': {
@@ -707,8 +706,7 @@ class BigqueryUtility:
                         'tableId': write_table_id,
                     },
                     'writeDisposition': writeDisposition,
-                    'flattenResults': flattenResults,
-                    'maximumBillingTier': maximumBillingTier
+                    'flattenResults': flattenResults
                 }
             }
         }
@@ -1061,6 +1059,63 @@ class BigqueryUtility:
                 write_dataset_id,
                 write_table_id,
                 '[%s]' % ', '.join(source_uris)
+            )
+
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
+        return response
+
+    def update_table_info(self, project_id, dataset_id, table_id, table_description=None, schema_fields=None, print_details=True):
+        request_body = {
+            'tableReference': {
+                'projectId': project_id,
+                'datasetId': dataset_id,
+                'tableId': table_id
+            }
+        }
+
+        if table_description is not None:
+            request_body['description'] = table_description
+
+        if schema_fields is not None:
+            assert isinstance(schema_fields, list)
+
+            fields = self.get_table_info(
+                project_id,
+                dataset_id,
+                table_id
+            )['schema']['fields']
+
+            # all fields have to be supplied even with table patch, this method checks and updates original fields
+            # this method won't support adding new fields to prevent potentially accidentally adding etc
+            # checks that all supplied schema fields are already existing fields
+            assert all([schema_field['name'] in [x['name'] for x in fields] for schema_field in schema_fields])
+
+            for schema_field in schema_fields:
+                for field in fields:
+                    if schema_field['name'] == field['name']:
+                        field.update(schema_field)
+                        break
+
+            request_body['schema'] = {
+                'fields': fields
+            }
+
+        response = self._tables.patch(
+            projectId=project_id,
+            datasetId=dataset_id,
+            tableId=table_id,
+            body=request_body
+        ).execute()
+
+        logging_string = '[BigQuery] Table Patched (%s:%s:%s)' % (
+                project_id,
+                dataset_id,
+                table_id
             )
 
         if print_details:
