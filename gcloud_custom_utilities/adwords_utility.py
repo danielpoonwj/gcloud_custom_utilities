@@ -45,7 +45,11 @@ class AdwordsUtility:
                     else:
                         out[k].append(item)
             else:
-                out[k] = v
+                try:
+                    out[k] = v.encode('utf-8')
+                except AttributeError:
+                    out[k] = v
+
         return out
 
     def _parse_object(self, fields, input_object, output_type):
