@@ -75,6 +75,31 @@ def generate_email_search_query(
     return search_filter
 
 
+def convert_list_to_html(data, has_header=True, table_format=None):
+    if has_header:
+        header = data.pop(0)
+    else:
+        header = ()
+
+    table_html = tabulate(data, headers=header, tablefmt='html', numalign='left')
+
+    if table_format is not None:
+        if isinstance(table_format, str) and table_format.lower() == 'default':
+            table_format = {
+                'table': "width: 100%; border-collapse: collapse; border: 2px solid black;",
+                'th': "border: 2px solid black;",
+                'td': "border: 1px solid black;"
+            }
+
+        if isinstance(table_format, dict):
+            assert all([key in ('table', 'th', 'tr', 'td') for key in table_format.keys()])
+
+            for k, v in table_format.iteritems():
+                table_html = table_html.replace('<%s>' % k, '<%s style="%s">' % (k, v))
+
+    return table_html
+
+
 class GmailUtility:
     def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None):
         try:
@@ -315,30 +340,6 @@ class GmailUtility:
 
                 if self._logger is not None:
                     self._logger.info(logging_string)
-
-    def convert_list_to_html(self, data, has_header=True, table_format=None):
-        if has_header:
-            header = data.pop(0)
-        else:
-            header = ()
-
-        table_html = tabulate(data, headers=header, tablefmt='html', numalign='left')
-
-        if table_format is not None:
-            if isinstance(table_format, str) and table_format.lower() == 'default':
-                table_format = {
-                    'table': "width: 100%; border-collapse: collapse; border: 2px solid black;",
-                    'th': "border: 2px solid black;",
-                    'td': "border: 1px solid black;"
-                }
-
-            if isinstance(table_format, dict):
-                assert all([key in ('table', 'th', 'tr', 'td') for key in table_format.keys()])
-
-                for k, v in table_format.iteritems():
-                    table_html = table_html.replace('<%s>' % k, '<%s style="%s">' % (k, v))
-
-        return table_html
 
     def _create_message(self, sender, to, subject, message_text, attachment_file_paths):
         def __generate_msg_part(part):
