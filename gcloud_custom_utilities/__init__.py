@@ -1,6 +1,6 @@
 from bigquery_utility import BigqueryUtility, read_string_from_file, convert_file_to_string, get_schema_from_dataframe
 from gcs_utility import GcsUtility
 from adwords_utility import AdwordsUtility, AdwordsReportCleaner
-from gmail_utility import GmailUtility, generate_email_search_query
+from gmail_utility import GmailUtility, generate_email_search_query, convert_list_to_html
 from gdrive_utility import DriveUtility
 from misc_utility import send_mail, StringLogger
