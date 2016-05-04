@@ -1,6 +1,7 @@
 import humanize
 from time import sleep
 from datetime import datetime
+from pytz import UTC
 from urllib2 import quote
 from httplib2 import HttpLib2Error
 import random
@@ -224,7 +225,7 @@ class GcsUtility:
             self._logger.info(logging_string)
 
     def upload_object(self, bucket_name, object_name, read_path, subfolders=None, print_details=True):
-        process_start_time = datetime.utcnow()
+        process_start_time = datetime.now(UTC)
 
         media = MediaFileUpload(read_path, chunksize=self._CHUNKSIZE, resumable=True)
 
@@ -261,7 +262,7 @@ class GcsUtility:
         # for logging
         m, s = divmod(
                 (
-                    datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ') -
+                    UTC.localize(datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ')) -
                     process_start_time
                 ).seconds, 60)
 
