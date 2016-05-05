@@ -485,7 +485,7 @@ class AdwordsReportCleaner:
         if value.strip() == '--':
             return None
         elif 'List' in field_type:
-            return ';'.join(literal_eval(value))
+            return None if value is None or value == '' else ';'.join(literal_eval(value))
         elif field_type == 'Money':
             # Money is returned as micro units, divide and round to 6 dp to avoid representation errors when dividing
             return round(float(value.replace(',', '')) / 1000000.0, 6)
