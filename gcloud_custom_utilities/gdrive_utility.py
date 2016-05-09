@@ -9,7 +9,7 @@ from oauth2client.client import flow_from_clientsecrets, UnknownClientSecretsFlo
 from oauth2client.contrib import multistore_file
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 
 class DriveUtility:
@@ -41,8 +41,26 @@ class DriveUtility:
 
         self._service = service
         self._files = self._service.files()
+        self._about = self._service.about()
+
+        # Number of bytes to send/receive in each request.
+        self._CHUNKSIZE = 2 * 1024 * 1024
 
         self._logger = logger
+
+    def get_account_info(self, fields=None):
+        if fields is None:
+            fields = 'appInstalled, ' \
+                     'exportFormats, ' \
+                     'folderColorPalette, ' \
+                     'importFormats, ' \
+                     'kind, ' \
+                     'maxImportSizes, ' \
+                     'maxUploadSize, ' \
+                     'storageQuota, ' \
+                     'user'
+
+        return self._about.get(fields=fields).execute()
 
     def list_files(self, param=None, get_full_resource=False):
         result = []
@@ -68,11 +86,13 @@ class DriveUtility:
                 break
         return result
 
-    def download_file(self, file_id, write_path, page_num=None, print_details=True):
+    def download_file(self, file_id, write_path, page_num=None, print_details=True, output_type=None):
         file_metadata = self._files.get(fileId=file_id, fields='name, id, mimeType, modifiedTime, size').execute()
 
         file_title = file_metadata['name']
         modified_date = datetime.strptime(str(file_metadata['modifiedTime']), '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=utc).astimezone(timezone('Asia/Singapore')).replace(tzinfo=None)
+
+        return_data = None
 
         if file_metadata['mimeType'] == 'application/vnd.google-apps.spreadsheet':
             assert page_num is not None
@@ -81,8 +101,22 @@ class DriveUtility:
             resp, content = self._service._http.request(download_url)
 
             if resp.status == 200:
-                with open(write_path, 'wb') as write_file:
-                    write_file.write(content)
+
+                if output_type is not None:
+                    assert output_type in ('dataframe', 'list')
+                    from io import BytesIO
+
+                    with BytesIO(content) as file_buffer:
+                        if output_type == 'list':
+                            import unicodecsv as csv
+                            return_data = list(csv.reader(file_buffer))
+                        elif output_type == 'dataframe':
+                            import pandas as pd
+                            return_data = pd.read_csv(file_buffer)
+
+                else:
+                    with open(write_path, 'wb') as write_file:
+                        write_file.write(content)
 
                 logging_string = '[Drive] Downloaded %s [%s]. Last Modified: %s' % (file_title, file_id, modified_date)
             else:
@@ -106,3 +140,77 @@ class DriveUtility:
 
         if self._logger is not None:
             self._logger.info(logging_string)
+
+        return return_data
+
+    def upload_file(self, read_path, description=None, parent_id=None, overwrite_existing=True, print_details=True):
+        file_name = os.path.basename(read_path)
+
+        fields = 'id, name, size, modifiedTime'
+
+        # check for existing file
+        q = 'name="%s"' % file_name
+
+        request_body = {
+            'name': file_name
+        }
+
+        if description is not None:
+            request_body['description'] = description
+
+        if parent_id is not None:
+            assert isinstance(parent_id, str)
+            request_body['parents'] = parent_id
+
+            q = '%s and "%s" in parents' % (q, parent_id)
+
+        existing_files = self.list_files({'q': q})
+
+        media = MediaFileUpload(read_path, chunksize=self._CHUNKSIZE, resumable=True)
+
+        if len(existing_files) == 0:
+            response = self._files.create(
+                media_body=media,
+                body=request_body,
+                fields=fields
+            ).execute()
+
+            modified_date = datetime.strptime(str(response['modifiedTime']), '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=utc).astimezone(timezone('Asia/Singapore')).replace(tzinfo=None)
+
+            logging_string = '[Drive] Uploaded (Created) %s [%s] (%s). Last Modified: %s' % (
+                response['name'],
+                response['id'],
+                humanize.naturalsize(int(response['size'])),
+                modified_date
+            )
+
+        elif len(existing_files) == 1 and overwrite_existing:
+            if 'parents' in request_body:
+                del request_body['parents']
+
+            response = self._files.update(
+                fileId=existing_files[0]['id'],
+                media_body=media,
+                body=request_body,
+                fields=fields
+            ).execute()
+
+            modified_date = datetime.strptime(str(response['modifiedTime']), '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=utc).astimezone(timezone('Asia/Singapore')).replace(tzinfo=None)
+
+            logging_string = '[Drive] Uploaded (Replaced) %s [%s] (%s). Last Modified: %s' % (
+                response['name'],
+                response['id'],
+                humanize.naturalsize(int(response['size'])),
+                modified_date
+            )
+
+        else:
+            raise ValueError('Multiple existing files named %s found in folder' % file_name)
+
+        if print_details:
+            print '\t' + logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
+        return response
