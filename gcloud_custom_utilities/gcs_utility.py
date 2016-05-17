@@ -1,3 +1,4 @@
+import os
 import humanize
 from time import sleep
 from datetime import datetime
@@ -22,30 +23,40 @@ class GcsUtility:
                 credentials = GoogleCredentials.get_application_default()
                 service = build('storage', 'v1', credentials=credentials)
             except ApplicationDefaultCredentialsError as e:
-                print 'Application Default Credentials unavailable. To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
+                print 'Application Default Credentials unavailable. ' \
+                      'To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ ' \
+                      'and authenticate through gcloud auth login'
                 raise e
 
         elif authentication_type == 'Stored Credentials':
-            import os
             import httplib2
             from oauth2client.contrib import multistore_file
-            from oauth2client.tools import run_flow, argparser
-
-            try:
-                import argparse
-                flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
-            except ImportError:
-                flags = None
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
             assert user_name is not None and credential_file_path is not None
-            storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
+            storage = multistore_file.get_credential_storage(
+                filename=credential_file_path,
+                client_id=user_name,
+                user_agent=None,
+                scope=OAUTH_SCOPE
+            )
+
             credentials = storage.get()
 
             if credentials is None or credentials.invalid:
                 if client_secret_path is None or not os.path.exists(client_secret_path):
-                    raise UnknownClientSecretsFlowError('Credentials unavailable. Please provide a valid client_secret_path to rerun authentication')
+                    raise UnknownClientSecretsFlowError(
+                        'Credentials unavailable. Please provide a valid client_secret_path to rerun authentication'
+                    )
+
+                from oauth2client.tools import run_flow, argparser
+
+                try:
+                    import argparse
+                    flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
+                except ImportError:
+                    flags = None
 
                 FLOW = flow_from_clientsecrets(client_secret_path, scope=OAUTH_SCOPE)
                 credentials = run_flow(FLOW, storage, flags)

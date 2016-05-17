@@ -14,12 +14,6 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 class DriveUtility:
     def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None):
-        try:
-            import argparse
-            flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
-        except ImportError:
-            flags = None
-
         OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive'
 
         storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
@@ -28,6 +22,12 @@ class DriveUtility:
         if credentials is None or credentials.invalid:
             if client_secret_path is None or not os.path.exists(client_secret_path):
                 raise UnknownClientSecretsFlowError('Credentials unavailable. Please provide a valid client_secret_path to rerun authentication')
+
+            try:
+                import argparse
+                flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
+            except ImportError:
+                flags = None
 
             # Run through the OAuth flow and retrieve credentials
             FLOW = flow_from_clientsecrets(client_secret_path, scope=OAUTH_SCOPE)
