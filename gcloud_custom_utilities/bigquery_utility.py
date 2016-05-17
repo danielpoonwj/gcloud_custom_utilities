@@ -1,6 +1,9 @@
 import humanize
 import uuid
 import pandas as pd
+import unicodecsv as csv
+from io import BytesIO
+import json
 from time import sleep
 import os
 
@@ -20,11 +23,9 @@ def read_string_from_file(read_path):
 def convert_file_to_string(f, source_format='csv'):
     assert source_format.lower() in ('csv', 'json')
 
-    from io import BytesIO
     io_output = BytesIO()
 
     if source_format == 'csv':
-        import unicodecsv as csv
         string_writer = csv.writer(io_output, lineterminator='\n')
 
         # file path to .csv
@@ -42,12 +43,11 @@ def convert_file_to_string(f, source_format='csv'):
             raise TypeError('Only file path or list of lists accepted')
 
     elif source_format == 'json':
-        import json
-
         # can be loaded from file path or string in a json structure
         if isinstance(f, str):
             if os.path.exists(f):
-                json_obj = json.load(f)
+                with open(f, 'rb') as read_file:
+                    json_obj = json.load(read_file)
             else:
                 json_obj = json.loads(f)
 
@@ -91,37 +91,47 @@ def get_schema_from_dataframe(input_df):
 
 
 class BigqueryUtility:
-    def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None):
-
+    def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None, max_retries=3):
         if authentication_type == 'Default Credentials':
             # try building from application default
             try:
                 credentials = GoogleCredentials.get_application_default()
                 service = build('bigquery', 'v2', credentials=credentials)
             except ApplicationDefaultCredentialsError as e:
-                print 'Application Default Credentials unavailable. To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ and authenticate through gcloud auth login'
+                print 'Application Default Credentials unavailable. ' \
+                      'To set up Default Credentials, download gcloud from https://cloud.google.com/sdk/gcloud/ ' \
+                      'and authenticate through gcloud auth login'
                 raise e
 
         elif authentication_type == 'Stored Credentials':
             import httplib2
             from oauth2client.contrib import multistore_file
-            from oauth2client.tools import run_flow, argparser
-
-            try:
-                import argparse
-                flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
-            except ImportError:
-                flags = None
 
             OAUTH_SCOPE = 'https://www.googleapis.com/auth/bigquery'
 
             assert user_name is not None and credential_file_path is not None
-            storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
+            storage = multistore_file.get_credential_storage(
+                filename=credential_file_path,
+                client_id=user_name,
+                user_agent=None,
+                scope=OAUTH_SCOPE
+            )
+
             credentials = storage.get()
 
             if credentials is None or credentials.invalid:
                 if client_secret_path is None or not os.path.exists(client_secret_path):
-                    raise UnknownClientSecretsFlowError('Credentials unavailable. Please provide a valid client_secret_path to rerun authentication')
+                    raise UnknownClientSecretsFlowError(
+                        'Credentials unavailable. Please provide a valid client_secret_path to rerun authentication'
+                    )
+
+                from oauth2client.tools import run_flow, argparser
+
+                try:
+                    import argparse
+                    flags = argparse.ArgumentParser(parents=[argparser]).parse_args()
+                except ImportError:
+                    flags = None
 
                 FLOW = flow_from_clientsecrets(client_secret_path, scope=OAUTH_SCOPE)
                 credentials = run_flow(FLOW, storage, flags)
@@ -142,12 +152,13 @@ class BigqueryUtility:
         self._tables = self._service.tables()
 
         self._logger = logger
+        self._max_retries = max_retries
 
     def list_projects(self, max_results=None):
         project_list = []
         project_count = 0
 
-        response = self._projects.list().execute()
+        response = self._projects.list().execute(num_retries=self._max_retries)
 
         if 'projects' in response:
             project_list += response['projects']
@@ -166,7 +177,7 @@ class BigqueryUtility:
 
             response = self._projects.list(
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             if 'projects' in response:
                 project_list += response['projects']
@@ -186,7 +197,7 @@ class BigqueryUtility:
             projectId=project_id,
             allUsers=show_all_users,
             stateFilter=state_filter
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'jobs' in response:
             job_list += response['jobs']
@@ -208,7 +219,7 @@ class BigqueryUtility:
                 allUsers=show_all_users,
                 stateFilter=state_filter,
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             if 'jobs' in response:
                 job_list += response['jobs']
@@ -227,7 +238,7 @@ class BigqueryUtility:
         response = self._datasets.list(
             projectId=project_id,
             all=show_all
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'datasets' in response:
             dataset_list += response['datasets']
@@ -248,7 +259,7 @@ class BigqueryUtility:
                 projectId=project_id,
                 all=show_all,
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             if 'datasets' in response:
                 dataset_list += response['datasets']
@@ -267,7 +278,7 @@ class BigqueryUtility:
         response = self._tables.list(
             projectId=project_id,
             datasetId=dataset_id
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'tables' in response:
             table_list += response['tables']
@@ -288,7 +299,7 @@ class BigqueryUtility:
                 projectId=project_id,
                 datasetId=dataset_id,
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             if 'tables' in response:
                 table_list += response['tables']
@@ -304,14 +315,14 @@ class BigqueryUtility:
         return self._jobs.get(
             projectId=project_id,
             jobId=job_id
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
     def get_table_info(self, project_id, dataset_id, table_id):
         return self._tables.get(
             projectId=project_id,
             datasetId=dataset_id,
             tableId=table_id
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
     def get_sharded_date_range(self, project_id, dataset_id, print_details=True):
         tableList = self.list_tables(project_id, dataset_id, max_results=100000)
@@ -366,7 +377,7 @@ class BigqueryUtility:
                 projectId=response['jobReference']['projectId'],
                 jobId=response['jobReference']['jobId'],
                 maxResults=0
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
         return response['schema']['fields']
 
@@ -375,7 +386,7 @@ class BigqueryUtility:
             projectId=project_id,
             datasetId=dataset_id,
             tableId=table_id
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         logging_string = '[BigQuery] Deleted %s:%s:%s' % (project_id, dataset_id, table_id)
 
@@ -413,7 +424,7 @@ class BigqueryUtility:
         response = self._jobs.query(
             projectId=project_id,
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         return self._iterate_job_results(response, return_type, print_details, sleep_time)
 
@@ -445,7 +456,7 @@ class BigqueryUtility:
         response = self._jobs.insert(
             projectId=project_id,
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         return self._iterate_job_results(response, return_type, print_details, sleep_time)
 
@@ -467,7 +478,7 @@ class BigqueryUtility:
                 jobId=job_reference['jobId'],
                 timeoutMs=0,
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             isComplete = response['jobComplete']
 
@@ -478,32 +489,37 @@ class BigqueryUtility:
                 for row in response['rows']:
                     returnList.append([item['v'] for item in row['f']])
 
-            sleep(1)
+            sleep(sleep_time)
 
         if return_type == 'list':
             return returnList
         elif return_type == 'dataframe':
-            querySchema = self._get_query_schema(response)
+            query_schema = self._get_query_schema(response)
 
             def _convert_timestamp(input_value):
                 try:
                     return pd.datetime.utcfromtimestamp(float(input_value))
-                except TypeError:
+                except (TypeError, ValueError):
                     return pd.np.NaN
 
-            dtypeConversion = {
-                'TIMESTAMP': lambda x: _convert_timestamp(x)
-            }
-
             if len(returnList) > 0:
-                resultHeader = returnList.pop(0)
-                returnDF = pd.DataFrame(returnList, columns=resultHeader)
+                with BytesIO() as file_buffer:
+                    csv_writer = csv.writer(file_buffer, lineterminator='\n')
+                    csv_writer.writerows(returnList)
+                    file_buffer.seek(0)
 
-                for fieldDict in querySchema:
-                    if fieldDict['type'] in dtypeConversion.keys():
-                        returnDF[fieldDict['name']] = returnDF[fieldDict['name']].map(dtypeConversion[fieldDict['type']])
+                    timestamp_cols = [x['name'] for x in query_schema if x['type'] == 'TIMESTAMP']
 
-                return returnDF
+                    if len(timestamp_cols) > 0:
+                        return_df = pd.read_csv(
+                            file_buffer,
+                            parse_dates=timestamp_cols,
+                            date_parser=lambda x: _convert_timestamp(x)
+                        )
+                    else:
+                        return_df = pd.read_csv(file_buffer)
+                return return_df
+
             else:
                 return None
 
@@ -520,7 +536,7 @@ class BigqueryUtility:
             response = self._jobs.get(
                 jobId=job_id,
                 projectId=project_id
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             status_state = response['status']['state']
             sleep(sleep_time)
@@ -566,7 +582,7 @@ class BigqueryUtility:
                     projectId=response['jobReference']['projectId'],
                     jobId=response['jobReference']['jobId'],
                     maxResults=0
-                ).execute()
+                ).execute(num_retries=self._max_retries)
 
             file_size = humanize.naturalsize(int(response['statistics']['query']['totalBytesProcessed']))
             row_count = int(query_response['totalRows'])
@@ -726,7 +742,7 @@ class BigqueryUtility:
         response = self._jobs.insert(
             projectId=project_id,
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if wait_finish:
             return self.poll_job_status(response, print_details, sleep_time)
@@ -765,7 +781,7 @@ class BigqueryUtility:
                 projectId=write_project_id,
                 datasetId=write_dataset_id,
                 body=request_body
-            ).execute()
+            ).execute(num_retries=self._max_retries)
         except HttpError as e:
             if e.resp.status == 409 and overwrite_existing:
                 self.delete_table(write_project_id, write_dataset_id, write_table_id, print_details=print_details)
@@ -773,7 +789,7 @@ class BigqueryUtility:
                     projectId=write_project_id,
                     datasetId=write_dataset_id,
                     body=request_body
-                ).execute()
+                ).execute(num_retries=self._max_retries)
             else:
                 raise e
 
@@ -841,7 +857,7 @@ class BigqueryUtility:
         response = self._jobs.insert(
             projectId=write_project_id,
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if wait_finish:
             return self.poll_job_status(response, print_details, sleep_time)
@@ -882,7 +898,7 @@ class BigqueryUtility:
         response = self._jobs.insert(
             projectId=read_project_id,
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if wait_finish:
             return self.poll_job_status(response, print_details, sleep_time)
@@ -939,7 +955,7 @@ class BigqueryUtility:
                 body=request_body,
                 projectId=write_project_id,
                 media_body=media_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if wait_finish:
             return self.poll_job_status(response, print_details, sleep_time)
@@ -984,7 +1000,7 @@ class BigqueryUtility:
         response = self._jobs.insert(
             projectId=write_data['projectId'],
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if wait_finish:
             return self.poll_job_status(response, print_details, sleep_time)
@@ -1042,7 +1058,7 @@ class BigqueryUtility:
                 projectId=write_project_id,
                 datasetId=write_dataset_id,
                 body=request_body
-            ).execute()
+            ).execute(num_retries=self._max_retries)
         except HttpError as e:
             if e.resp.status == 409 and overwrite_existing:
                 self.delete_table(write_project_id, write_dataset_id, write_table_id, print_details=print_details)
@@ -1050,7 +1066,7 @@ class BigqueryUtility:
                     projectId=write_project_id,
                     datasetId=write_dataset_id,
                     body=request_body
-                ).execute()
+                ).execute(num_retries=self._max_retries)
             else:
                 raise e
 
@@ -1110,7 +1126,7 @@ class BigqueryUtility:
             datasetId=dataset_id,
             tableId=table_id,
             body=request_body
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         logging_string = '[BigQuery] Table Patched (%s:%s:%s)' % (
                 project_id,
