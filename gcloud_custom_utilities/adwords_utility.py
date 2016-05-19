@@ -2,6 +2,7 @@ from googleads import adwords
 from datetime import datetime
 from ast import literal_eval
 from suds.sudsobject import asdict
+import re
 
 
 class AdwordsUtility:
@@ -488,14 +489,14 @@ class AdwordsReportCleaner:
             return None if value is None or value == '' else ';'.join(literal_eval(value))
         elif field_type == 'Money':
             # Money is returned as micro units, divide and round to 6 dp to avoid representation errors when dividing
-            return round(float(value.replace(',', '')) / 1000000.0, 6)
+            return round(float(re.sub(r'[^\d\-.]+', '', value)) / 1000000.0, 6)
         elif field_type == 'Date':
             return datetime.strptime(value, '%Y-%m-%d').strftime('%Y-%m-%d %H:%M:%S')
         elif field_type in self._bq_map:
             if self._bq_map[field_type] == 'FLOAT':
-                return float(value.replace(',', ''))
+                return float(re.sub(r'[^\d\-.]+', '', value))
             if self._bq_map[field_type] == 'INTEGER':
-                return int(float(value.replace(',', '')))
+                return int(float(re.sub(r'[^\d\-.]+', '', value)))
         else:
             return value
 
