@@ -6,6 +6,7 @@ from io import BytesIO
 import json
 from time import sleep
 import os
+from itertools import chain
 
 from oauth2client.client import GoogleCredentials, ApplicationDefaultCredentialsError, flow_from_clientsecrets, UnknownClientSecretsFlowError
 from googleapiclient.discovery import build
@@ -88,6 +89,111 @@ def get_schema_from_dataframe(input_df):
 
     dtype_df['type'] = dtype_df['type'].map(lambda x: dtype_conversion_dict[x.kind])
     return dtype_df.to_dict('records')
+
+
+class get_schema_from_json:
+    def __init__(self):
+        self.dtype_conversion = {
+            'unicode': 'STRING',
+            'str': 'STRING',
+            'basestring': 'STRING',
+            'int': 'INTEGER',
+            'bool': 'BOOLEAN',
+            'float': 'FLOAT',
+            'long': 'INTEGER'
+        }
+
+    def _get_dict_structure(self, d):
+        out = {}
+        for k, v in d.iteritems():
+            if isinstance(v, dict):
+                out[k] = self._get_dict_structure(v)
+            elif isinstance(v, list):
+                out[k] = []
+                collapsed_dict = None
+
+                # if mode is repeated, all the distinct attributes of every record should be included in the schema
+                for item in v:
+                    if isinstance(item, dict):
+                        expanded_item = self._get_dict_structure(item)
+
+                        if collapsed_dict is None:
+                            collapsed_dict = expanded_item.copy()
+                        else:
+                            self.merge_dicts(collapsed_dict, expanded_item)
+                    else:
+                        out[k].append(item)
+
+                out[k].append(collapsed_dict)
+
+            else:
+                if v is not None:
+                    out[k] = self.dtype_conversion[type(v).__name__]
+        return out
+
+    def merge_dicts(self, original_dict, new_dict):
+        for k, v in new_dict.iteritems():
+            if k in original_dict:
+                if isinstance(original_dict[k], dict) and isinstance(v, dict):
+                    self.merge_dicts(original_dict[k], v)
+
+                elif isinstance(v, list):
+                    for item in v:
+                        for original_item in original_dict[k]:
+                            self.merge_dicts(original_item, item)
+            else:
+                original_dict[k] = v
+
+    def structure_to_schema(self, structure):
+        schema_list = []
+        for k, v in structure.iteritems():
+            if isinstance(v, dict):
+                schema_list.append(
+                    {
+                        'name': k,
+                        'type': 'RECORD',
+                        'fields': self.structure_to_schema(v)
+                    }
+                )
+
+            elif isinstance(v, list):
+                field_list = list(chain.from_iterable([self.structure_to_schema(x) for x in v]))
+
+                schema_list.append(
+                    {
+                        'name': k,
+                        'type': 'RECORD',
+                        'mode': 'REPEATED',
+                        'fields': field_list
+                    }
+                )
+
+            else:
+                schema_list.append(
+                    {
+                        'name': k,
+                        'type': v
+                    }
+                )
+        return schema_list
+
+    def merge_list(self, record_list, return_type='schema'):
+        assert return_type in ('schema', 'structure')
+
+        merged_dict = None
+
+        for record in record_list:
+            record_structure = self._get_dict_structure(record)
+
+            if merged_dict is None:
+                merged_dict = record_structure.copy()
+            else:
+                self.merge_dicts(merged_dict, record_structure)
+
+        if return_type == 'schema':
+            return self.structure_to_schema(merged_dict)
+        else:
+            return merged_dict
 
 
 class BigqueryUtility:
