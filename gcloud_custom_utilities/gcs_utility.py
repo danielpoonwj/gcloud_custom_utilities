@@ -269,13 +269,11 @@ class GcsUtility:
                 progressless_iters = 0
 
         file_size = humanize.naturalsize(int(response['size']))
+        updated_at = UTC.localize(datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ'))
+        time_diff = (updated_at - process_start_time).seconds if updated_at > process_start_time else 0
 
         # for logging
-        m, s = divmod(
-                (
-                    UTC.localize(datetime.strptime(response['updated'], '%Y-%m-%dT%H:%M:%S.%fZ')) -
-                    process_start_time
-                ).seconds, 60)
+        m, s = divmod(time_diff, 60)
 
         time_taken = '%02d Minutes %02d Seconds' % (m, s)
 
