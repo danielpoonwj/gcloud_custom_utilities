@@ -221,11 +221,15 @@ class AdwordsUtility:
             return_dict.setdefault(date_key, {})
 
         for row in data:
-            temp_dict = dict(zip(header, row))
-            row_date = temp_dict.pop('date')
-            row_date = datetime.strptime(row_date, '%Y-%m-%d %H:%M:%S').strftime('%Y%m%d')
-            row_account_id = temp_dict.pop('account_id')
-            return_dict[row_date][row_account_id] = temp_dict
+            try:
+                temp_dict = dict(zip(header, row))
+                row_date = temp_dict.pop('date')
+                row_date = datetime.strptime(row_date, '%Y-%m-%d %H:%M:%S').strftime('%Y%m%d')
+                row_account_id = temp_dict.pop('account_id')
+                return_dict[row_date][row_account_id] = temp_dict
+            except KeyError as e:
+                print e
+                continue
 
         return return_dict
 
