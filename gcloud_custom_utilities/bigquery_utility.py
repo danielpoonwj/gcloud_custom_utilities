@@ -1124,12 +1124,12 @@ class BigqueryUtility:
 
         assert source_format in ('CSV', 'NEWLINE_DELIMITED_JSON')
 
-        # projectId, datasetId, tableId, schemaFields and sourceUris must be filled when writing federated table
+        # projectId, datasetId, tableId, schemaFields and sourceUri must be filled when writing federated table
         write_project_id = write_data['projectId']
         write_dataset_id = write_data['datasetId']
         write_table_id = write_data['tableId']
         schema_fields = write_data['schemaFields']
-        source_uris = write_data['sourceUris']
+        source_uris = write_data['sourceUri']
 
         quoted_newlines = 'false' if 'allowQuotedNewlines' not in write_data else write_data['allowQuotedNewlines']
 
@@ -1148,7 +1148,7 @@ class BigqueryUtility:
                     'fields': schema_fields
                 },
                 'sourceFormat': source_format,
-                'compression': None if compression != 'GZIP' else compression,
+                'compression': 'NONE' if compression != 'GZIP' else compression,
 
                 'csvOptions': {
                     'skipLeadingRows': 1 if skipHeader and source_format == 'CSV' else None,
@@ -1238,6 +1238,71 @@ class BigqueryUtility:
                 project_id,
                 dataset_id,
                 table_id
+            )
+
+        if print_details:
+            print '\t%s' % logging_string
+
+        if self._logger is not None:
+            self._logger.info(logging_string)
+
+        return response
+
+    def write_gsheets_table(self,
+                    write_data,
+                    gsheet_id,
+                    skip_leading_rows=1,
+                    overwrite_existing=True,
+                    print_details=True):
+
+        # projectId, datasetId, tableId, and schemaFields writing gsheets table
+        write_project_id = write_data['projectId']
+        write_dataset_id = write_data['datasetId']
+        write_table_id = write_data['tableId']
+        schema_fields = write_data['schemaFields']
+
+        request_body = {
+            'tableReference': {
+                'projectId': write_project_id,
+                'datasetId': write_dataset_id,
+                'tableId': write_table_id
+            },
+            'externalDataConfiguration': {
+                'sourceUris': ['https://drive.google.com/open?id=%s' % gsheet_id],
+                'schema': {
+                    'fields': schema_fields
+                },
+                'sourceFormat': 'GOOGLE_SHEETS',
+                'autodetect': False,
+                'googleSheetsOptions': {
+                    'skipLeadingRows': skip_leading_rows
+                }
+            }
+        }
+
+        # error would be raised if table/view already exists, delete first before reinserting
+        try:
+            response = self._tables.insert(
+                projectId=write_project_id,
+                datasetId=write_dataset_id,
+                body=request_body
+            ).execute(num_retries=self._max_retries)
+        except HttpError as e:
+            if e.resp.status == 409 and overwrite_existing:
+                self.delete_table(write_project_id, write_dataset_id, write_table_id, print_details=print_details)
+                response = self._tables.insert(
+                    projectId=write_project_id,
+                    datasetId=write_dataset_id,
+                    body=request_body
+                ).execute(num_retries=self._max_retries)
+            else:
+                raise e
+
+        logging_string = '[BigQuery] Google Sheets Table Inserted (%s:%s:%s) from %s' % (
+                write_project_id,
+                write_dataset_id,
+                write_table_id,
+                gsheet_id
             )
 
         if print_details:
