@@ -13,7 +13,7 @@ from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 
 class DriveUtility:
-    def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None):
+    def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None, max_retries=3):
         OAUTH_SCOPE = 'https://www.googleapis.com/auth/drive'
 
         storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
@@ -47,6 +47,7 @@ class DriveUtility:
         self._CHUNKSIZE = 2 * 1024 * 1024
 
         self._logger = logger
+        self._max_retries = max_retries
 
     def get_account_info(self, fields=None):
         if fields is None:
@@ -60,7 +61,7 @@ class DriveUtility:
                      'storageQuota, ' \
                      'user'
 
-        return self._about.get(fields=fields).execute()
+        return self._about.get(fields=fields).execute(num_retries=self._max_retries)
 
     def list_files(self, param=None, get_full_resource=False):
         result = []
@@ -73,9 +74,9 @@ class DriveUtility:
 
             if get_full_resource:
                 param['fields'] = 'nextPageToken, files'
-                files = self._files.list(**param).execute()
+                files = self._files.list(**param).execute(num_retries=self._max_retries)
             else:
-                files = self._files.list(**param).execute()
+                files = self._files.list(**param).execute(num_retries=self._max_retries)
 
             for file_resource in files['files']:
                 result.append(file_resource)
@@ -87,7 +88,7 @@ class DriveUtility:
         return result
 
     def download_file(self, file_id, write_path, page_num=None, print_details=True, output_type=None):
-        file_metadata = self._files.get(fileId=file_id, fields='name, id, mimeType, modifiedTime, size').execute()
+        file_metadata = self._files.get(fileId=file_id, fields='name, id, mimeType, modifiedTime, size').execute(num_retries=self._max_retries)
 
         file_title = file_metadata['name']
         modified_date = datetime.strptime(str(file_metadata['modifiedTime']), '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=utc).astimezone(timezone('Asia/Singapore')).replace(tzinfo=None)
@@ -173,7 +174,7 @@ class DriveUtility:
                 media_body=media,
                 body=request_body,
                 fields=fields
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             modified_date = datetime.strptime(str(response['modifiedTime']), '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=utc).astimezone(timezone('Asia/Singapore')).replace(tzinfo=None)
 
@@ -193,7 +194,7 @@ class DriveUtility:
                 media_body=media,
                 body=request_body,
                 fields=fields
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             modified_date = datetime.strptime(str(response['modifiedTime']), '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=utc).astimezone(timezone('Asia/Singapore')).replace(tzinfo=None)
 

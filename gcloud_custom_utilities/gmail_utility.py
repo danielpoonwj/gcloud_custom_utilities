@@ -101,7 +101,7 @@ def convert_list_to_html(data, has_header=True, table_format=None):
 
 
 class GmailUtility:
-    def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None):
+    def __init__(self, user_name, credential_file_path, client_secret_path=None, logger=None, max_retries=3):
         OAUTH_SCOPE = 'https://mail.google.com/'
 
         storage = multistore_file.get_credential_storage(filename=credential_file_path, client_id=user_name, user_agent=None, scope=OAUTH_SCOPE)
@@ -133,9 +133,10 @@ class GmailUtility:
         self._drafts = self._user.drafts()
 
         self._logger = logger
+        self._max_retries = max_retries
 
     def get_user_profile(self):
-        return self._user.getProfile(userId='me').execute()
+        return self._user.getProfile(userId='me').execute(num_retries=self._max_retries)
 
     def list_messages(self, include_all=False, query=None, max_results=None, show_full_messages=True):
         message_list = []
@@ -145,7 +146,7 @@ class GmailUtility:
             userId='me',
             includeSpamTrash=include_all,
             q=query
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'messages' in response:
             message_list += response['messages']
@@ -166,7 +167,7 @@ class GmailUtility:
                     includeSpamTrash=include_all,
                     q=query,
                     pageToken=page_token
-                ).execute()
+                ).execute(num_retries=self._max_retries)
 
                 if 'messages' in response:
                     message_list += response['messages']
@@ -188,7 +189,7 @@ class GmailUtility:
         response = self._drafts.list(
             userId='me',
             includeSpamTrash=include_all
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'drafts' in response:
             draft_list += response['drafts']
@@ -208,7 +209,7 @@ class GmailUtility:
                     userId='me',
                     includeSpamTrash=include_all,
                     pageToken=page_token
-                ).execute()
+                ).execute(num_retries=self._max_retries)
 
                 if 'drafts' in response:
                     draft_list += response['drafts']
@@ -224,13 +225,13 @@ class GmailUtility:
         return draft_list
 
     def _get_message(self, id, format='full'):
-        return self._messages.get(id=id, userId='me', format=format).execute()
+        return self._messages.get(id=id, userId='me', format=format).execute(num_retries=self._max_retries)
 
     def _get_attachment(self, attachment_id, message_id):
-        return self._messages.attachments().get(id=attachment_id, messageId=message_id, userId='me').execute()
+        return self._messages.attachments().get(id=attachment_id, messageId=message_id, userId='me').execute(num_retries=self._max_retries)
 
     def _get_draft(self, id, format='full'):
-        return self._drafts.get(id=id, userId='me', format=format).execute()
+        return self._drafts.get(id=id, userId='me', format=format).execute(num_retries=self._max_retries)
 
     def download_email_attachments(
             self,
@@ -432,12 +433,12 @@ class GmailUtility:
 
     def create_draft(self, sender, to, subject, message_text, attachment_file_paths=None):
         message = {'message': self._create_message(sender, to, subject, message_text, attachment_file_paths)}
-        response = self._drafts.create(userId='me', body=message).execute()
+        response = self._drafts.create(userId='me', body=message).execute(num_retries=self._max_retries)
 
         return response
 
     def send_email(self, sender, to, subject, message_text, attachment_file_paths=None):
         message = self._create_message(sender, to, subject, message_text, attachment_file_paths)
-        response = self._messages.send(userId='me', body=message).execute()
+        response = self._messages.send(userId='me', body=message).execute(num_retries=self._max_retries)
 
         return response

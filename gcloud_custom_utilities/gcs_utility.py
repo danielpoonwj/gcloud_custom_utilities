@@ -15,7 +15,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 
 class GcsUtility:
-    def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None):
+    def __init__(self, logger=None, authentication_type='Default Credentials', credential_file_path=None, user_name=None, client_secret_path=None, max_retries=3):
 
         if authentication_type == 'Default Credentials':
             # try building from application default
@@ -76,8 +76,7 @@ class GcsUtility:
         # Retry transport and file IO errors.
         self._RETRYABLE_ERRORS = (HttpLib2Error, IOError)
 
-        # Number of times to retry failed downloads.
-        self._NUM_RETRIES = 5
+        self._max_retries = max_retries
 
         # Number of bytes to send/receive in each request.
         self._CHUNKSIZE = 2 * 1024 * 1024
@@ -94,7 +93,7 @@ class GcsUtility:
         response = self._buckets.list(
             project=project_name,
             maxResults=max_results
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'items' in response:
             buckets_list += response['items']
@@ -114,7 +113,7 @@ class GcsUtility:
             response = self._buckets.list(
                 project=project_name,
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             if 'items' in response:
                 buckets_list += response['items']
@@ -134,7 +133,7 @@ class GcsUtility:
             bucket=bucket_name,
             prefix=search_prefix,
             maxResults=max_results
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         if 'items' in response:
             objects_list += response['items']
@@ -155,7 +154,7 @@ class GcsUtility:
                 bucket=bucket_name,
                 prefix=search_prefix,
                 pageToken=page_token
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
             if 'items' in response:
                 objects_list += response['items']
@@ -180,12 +179,12 @@ class GcsUtility:
         response = self._objects.get(
             bucket=bucket_name,
             object=self._parse_object_name(object_name, subfolders)
-        ).execute()
+        ).execute(num_retries=self._max_retries)
 
         return response
 
     def _handle_progressless_iter(self, error, progressless_iters):
-        if progressless_iters > self._NUM_RETRIES:
+        if progressless_iters > self._max_retries:
             print 'Failed to make progress for too many consecutive iterations.'
             raise error
 
@@ -298,7 +297,7 @@ class GcsUtility:
             response = self._objects.delete(
                 bucket=bucket_name,
                 object=self._parse_object_name(object_name, subfolders)
-            ).execute()
+            ).execute(num_retries=self._max_retries)
 
         logging_string = '[GCS] Deleted gs://%s/%s' % (
             bucket_name,
