@@ -3,7 +3,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import COMMASPACE, formatdate
 import logging
-from io import BytesIO
+from StringIO import StringIO
 
 
 class StringLogger:
@@ -20,7 +20,7 @@ class StringLogger:
             assert isinstance(formatter, logging.Formatter)
             self._formatter = formatter
 
-        self._log_capture_string = BytesIO()
+        self._log_capture_string = StringIO()
         sh = logging.StreamHandler(self._log_capture_string)
         sh.setLevel(level)
         sh.setFormatter(self._formatter)
